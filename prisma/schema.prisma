@@ -1,0 +1,300 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ── Authentication & Users ──
+// Roles: ADMIN, MANAGER, PARTNER
+// Statuses: ACTIVE, BLOCKED, PENDING
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         String  @default("PARTNER")
+  status       String  @default("PENDING")
+  companyName  String?
+
+  partnerPrices PartnerPrice[]
+  calculations  Calculation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Door Systems ──
+
+model DoorSystem {
+  id           String  @id @default(cuid())
+  slug         String  @unique
+  name         String
+  sortOrder    Int     @default(0)
+  minWidth     Int
+  maxWidth     Int
+  maxFullWidth Int?
+  hasExtraField Boolean @default(false)
+  minHeight    Int     @default(1800)
+  maxHeight    Int     @default(3500)
+  isActive     Boolean @default(true)
+
+  videoUrl         String?
+  posterUrl        String?
+  tooltipWidthUrl  String?
+  tooltipHeightUrl String?
+  tooltipOpenUrl   String?
+
+  subsystems   Subsystem[]
+  calculations Calculation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Subsystem {
+  id        String     @id @default(cuid())
+  systemId  String
+  system    DoorSystem @relation(fields: [systemId], references: [id], onDelete: Cascade)
+
+  name      String
+  minWidth  Int
+  maxWidth  Int
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  videoUrl  String?
+  posterUrl String?
+
+  params    Json // flexible JSON for all subsystem-specific parameters
+  formulas  Json? // { "door_width": "(full_width + 32) / num_doors" }
+
+  calculations Calculation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([systemId, name])
+}
+
+// ── Components & Pricing ──
+
+model Component {
+  id           String  @id @default(cuid())
+  key          String  @unique
+  name         String
+  unit         String  @default("шт")
+  category     String  @default("component") // "component", "glass", "service", "shotlan"
+  sortOrder    Int     @default(0)
+  isActive     Boolean @default(true)
+  defaultPrice Float
+
+  partnerPrices PartnerPrice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PartnerPrice {
+  id          String    @id @default(cuid())
+  partnerId   String
+  partner     User      @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  componentId String
+  component   Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  price       Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([partnerId, componentId])
+}
+
+// ── Glass Types ──
+
+model GlassType {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  defaultPrice     Float
+  sortOrder        Int      @default(0)
+  isActive         Boolean  @default(true)
+  imageUrl         String?
+  mobileImageUrl   String?
+  restrictedShotlans String  @default("[]") // JSON array as string
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Shotlan Options ──
+
+model ShotlanOption {
+  id             String  @id @default(cuid())
+  name           String  @unique
+  sortOrder      Int     @default(0)
+  isActive       Boolean @default(true)
+  imageUrl       String?
+  mobileImageUrl String?
+  calcMethod     String
+  components     Json?   // { "divider_profile": 25, "bolts_extra": 0.5 }
+  formulas       Json?   // { "divider_profile": "Кол-во дверей * 2" }
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Additional Services ──
+
+model AdditionalService {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  defaultPrice Float
+  priceUnit   String  @default("per_sqm") // "per_sqm", "fixed", "per_door"
+  isActive    Boolean @default(true)
+  showInPdf   Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── System Formulas (calculation formulas per system/subsystem) ──
+
+model SystemFormula {
+  id            String @id @default(cuid())
+  systemName    String
+  subsystemName String
+  componentName String
+  formula       String
+  sortOrder     Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([systemName, subsystemName, componentName])
+}
+
+// ── Param Definitions (characteristics dictionary) ──
+
+model ParamDefinition {
+  id       String  @id @default(cuid())
+  key      String  @unique
+  label    String
+  category String  @default("general") // "general", "subsystem", "shotlan"
+  price    Float?
+  formula  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Subsystem Variants (visual cards per subsystem) ──
+
+model SubsystemVariant {
+  id            String @id @default(cuid())
+  systemSlug    String
+  subsystemName String
+  variantName   String // "Вариант 1"
+  railImageUrl  String? // фото рельсы
+  sortOrder     Int    @default(0)
+
+  schemes SubsystemScheme[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items SubsystemVariantItem[]
+
+  @@unique([systemSlug, subsystemName])
+}
+
+model SubsystemVariantItem {
+  id        String @id @default(cuid())
+  variantId String
+  variant   SubsystemVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  title     String
+  description String @default("")
+  iconUrl   String? // path to icon image
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SubsystemScheme {
+  id        String @id @default(cuid())
+  variantId String
+  variant   SubsystemVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  label     String   // "Вид спереди", "Вид сбоку", "Вид сверху"
+  svgContent String  // raw SVG markup with {{WIDTH}}, {{HEIGHT}}, {{DOOR_WIDTH}} placeholders
+  ratioType  String? // "wide" (ширина > высота), "square" (≈равны), "tall" (высота > ширины), null = always show (door)
+  sortOrder  Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Client Cards ──
+
+model ClientCard {
+  id            String @id @default(cuid())
+  clientName    String
+  clientPhone   String
+  clientAddress String @default("")
+  managerName   String
+  branch        String
+
+  systemSlug String?
+  systemName String
+  subsystem  String
+  glass      String
+  shotlan    String
+  fullWidth  Int
+  openWidth  Int    @default(0)
+  height     Int
+  doorWidth  Int
+  totalPrice Float
+  components Json // Array<{name, key, qty, price, sum, unit}>
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Calculations ──
+
+model Calculation {
+  id            String     @id @default(cuid())
+  userId        String?
+  user          User?      @relation(fields: [userId], references: [id])
+  customerName  String
+  customerPhone String
+
+  systemId    String
+  system      DoorSystem @relation(fields: [systemId], references: [id])
+  subsystemId String
+  subsystem   Subsystem  @relation(fields: [subsystemId], references: [id])
+
+  fullWidth Int
+  openWidth Int?
+  height    Int
+  doorWidth Int
+
+  glassType   String
+  shotlanType String
+
+  components Json  // snapshot: Array<{name, key, qty, price, sum, unit}>
+  totalPrice Float
+  services   Json? // snapshot of selected additional services
+
+  pdfUrl String?
+  status String @default("draft") // "draft", "sent", "ordered", "completed"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

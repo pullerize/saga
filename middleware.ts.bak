@@ -1,0 +1,31 @@
+import { auth } from "@/auth";
+
+export default auth((req) => {
+  const { pathname } = req.nextUrl;
+  const isLoggedIn = !!req.auth;
+  const role = req.auth?.user?.role;
+
+  // Protect admin routes — ADMIN only
+  if (pathname.startsWith("/admin")) {
+    if (!isLoggedIn || role !== "ADMIN") {
+      return Response.redirect(new URL("/auth/login", req.url));
+    }
+  }
+
+  // Protect partner routes — PARTNER or ADMIN
+  if (pathname.startsWith("/partner")) {
+    if (!isLoggedIn) {
+      return Response.redirect(new URL("/auth/login", req.url));
+    }
+  }
+
+  // Redirect logged-in users away from login page
+  if (pathname === "/auth/login" && isLoggedIn) {
+    const redirectTo = role === "ADMIN" ? "/admin" : "/";
+    return Response.redirect(new URL(redirectTo, req.url));
+  }
+});
+
+export const config = {
+  matcher: ["/admin/:path*", "/partner/:path*", "/auth/login"],
+};

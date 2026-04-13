@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="8000mm"
+   height="4000mm"
+   viewBox="0 0 8000 4000"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   sodipodi:docname="рисунок-1.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="0.03125"
+     inkscape:cx="14640"
+     inkscape:cy="9839.9999"
+     inkscape:window-width="1920"
+     inkscape:window-height="991"
+     inkscape:window-x="-9"
+     inkscape:window-y="-9"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Слой 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="opacity:0.0294118;fill:#292929;stroke:#000000;stroke-width:0.0852661"
+       id="rect1"
+       width="2974.5862"
+       height="2199.7302"
+       x="568.89166"
+       y="1310.2046"
+       inkscape:label="Проем" />
+    <rect
+       style="fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+       id="rect2-8"
+       width="35"
+       height="1000"
+       x="515.9375"
+       y="-5405.3125"
+       transform="rotate(90)"
+       inkscape:label="Horiontal profile (W=Door width; H=35)" />
+    <rect
+       style="opacity:1;fill:#4d4d4d;fill-opacity:0.031405;stroke:#000000;stroke-width:0.100001"
+       id="rect9"
+       width="1000.0095"
+       height="3000.0049"
+       x="5992.8076"
+       y="515.9375" />
+    <rect
+       style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+       id="rect3"
+       width="16"
+       height="3000"
+       x="5389.3125"
+       y="515.93738"
+       inkscape:label="Vertical profile (W=16; H=Door height)" />
+    <rect
+       style="fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.0983813"
+       id="rect13"
+       width="18"
+       height="968"
+       x="2627.2083"
+       y="-6976.8125"
+       transform="rotate(90)" />
+    <rect
+       style="opacity:1;fill:#4d4d4d;fill-opacity:0.03140496;stroke:#000000;stroke-width:0.1"
+       id="rect4"
+       width="1000"
+       height="3000"
+       x="4405.3125"
+       y="515.9375"
+       inkscape:label="Door" />
+    <rect
+       style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+       id="rect6"
+       width="16"
+       height="3000"
+       x="5992.8125"
+       y="515.9375" />
+    <rect
+       style="fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+       id="rect7"
+       width="35"
+       height="1000"
+       x="515.9375"
+       y="-6992.8125"
+       transform="rotate(90)" />
+    <rect
+       style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+       id="rect8"
+       width="16"
+       height="3000"
+       x="6976.8125"
+       y="515.9375" />
+    <rect
+       style="fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+       id="rect10"
+       width="35"
+       height="1000"
+       x="3480.9375"
+       y="-6992.8125"
+       transform="rotate(90)" />
+    <rect
+       style="fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.0983813"
+       id="rect11"
+       width="18"
+       height="968"
+       x="2357.2603"
+       y="-6976.8125"
+       transform="rotate(90)" />
+    <rect
+       style="fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.195962"
+       id="rect14"
+       width="44.804039"
+       height="2999.804"
+       x="1310.2046"
+       y="-3556.0867"
+       transform="rotate(90)"
+       inkscape:label="Track (W=Total width; H=45) (Location: На верхней части &quot;Проема&quot;)" />
+    <rect
+       style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+       id="rect15"
+       width="16"
+       height="3000"
+       x="4405.3125"
+       y="515.93738"
+       inkscape:label="Vertical profile (W=16; H=Door height)" />
+    <rect
+       style="fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+       id="rect16"
+       width="35"
+       height="1000"
+       x="3480.9375"
+       y="-5405.3125"
+       transform="rotate(90)"
+       inkscape:label="Horiontal profile (W=Door width; H=35)" />
+    <g
+       id="g19"
+       transform="translate(-2983.8998,90.203003)">
+      <rect
+         style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+         id="rect17"
+         width="27"
+         height="11"
+         x="3543.4778"
+         y="2319.8667" />
+      <rect
+         style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+         id="rect18"
+         width="27"
+         height="11"
+         x="3543.4778"
+         y="2508.5969" />
+      <rect
+         style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.269874"
+         id="rect19"
+         width="199.73013"
+         height="10.830127"
+         x="2319.8667"
+         y="-3570.4778"
+         transform="rotate(90)" />
+    </g>
+    <g
+       id="g23"
+       transform="matrix(-1,0,0,1,7070.9556,90.203003)"
+       inkscape:label="Handle (Size shouldn't change) (Location: центр объекта должен быть на высота 1000 от низа проема и 16 от боков)">
+      <rect
+         style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+         id="rect21"
+         width="27"
+         height="11"
+         x="3543.4778"
+         y="2319.8667" />
+      <rect
+         style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.1"
+         id="rect22"
+         width="27"
+         height="11"
+         x="3543.4778"
+         y="2508.5969" />
+      <rect
+         style="opacity:1;fill:#4d4d4d;fill-opacity:1;stroke:#000000;stroke-width:0.269874"
+         id="rect23"
+         width="199.73013"
+         height="10.830127"
+         x="2319.8667"
+         y="-3570.4778"
+         transform="rotate(90)" />
+    </g>
+  </g>
+</svg>
