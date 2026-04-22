@@ -50,8 +50,6 @@ const navGroups: NavGroup[] = [
     title: "Управление",
     items: [
       { href: "/admin/users", label: "Пользователи", icon: Users, description: "Управление партнёрами" },
-      { href: "/admin/services", label: "Услуги", icon: Wrench, description: "Дополнительные услуги" },
-      { href: "/admin/analytics", label: "Аналитика", icon: BarChart3, description: "Архив и статистика" },
     ],
   },
 ];
