@@ -184,14 +184,8 @@ export default function LoginPage() {
                 Войти как гость
               </Button>
 
-              <div className="mt-6 text-center text-sm text-muted-foreground">
-                Нет аккаунта?{" "}
-                <Link
-                  href="/auth/register"
-                  className="text-brand-500 font-medium hover:text-brand-700 transition-colors"
-                >
-                  Регистрация партнёра
-                </Link>
+              <div className="mt-6 text-center text-xs text-muted-foreground">
+                Аккаунты создаёт администратор. Для получения доступа обратитесь в офис SAGA.
               </div>
             </CardContent>
           </Card>
