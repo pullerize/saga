@@ -5,6 +5,9 @@ import { compare } from "bcryptjs";
 import type { UserRole } from "@/types";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Self-hosted за reverse-proxy: доверяем заголовку Host (X-Forwarded-Host).
+  // Иначе Auth.js v5 по-умолчанию отклоняет всё что не равно NEXTAUTH_URL.
+  trustHost: true,
   providers: [
     Credentials({
       credentials: {
