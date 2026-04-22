@@ -131,6 +131,23 @@ export async function POST(req: Request) {
     formulaMap[f.componentName] = f.formula;
   }
 
+  // Resolve "number of doors" — handle multiple key conventions (engine code uses
+  // num_doors / doors, but DB params are transliterated like kol_vo_dverey)
+  function resolveNumDoors(): number {
+    const candidates = [
+      params.num_doors,
+      params.doors,
+      params.kol_vo_dverey,
+      vars["Кол-во дверей"],
+    ];
+    for (const c of candidates) {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 1;
+  }
+  const numDoors = resolveNumDoors();
+
   // Step 1: Calculate door width first
   let doorWidth = 0;
   const dwFormula = formulaMap["Ширина двери"];
@@ -140,7 +157,7 @@ export async function POST(req: Request) {
     const floored = Math.floor(doorWidth);
     doorWidth = (doorWidth - floored > 0.4) ? floored + 1 : floored;
   } else {
-    const numDoors = params.num_doors || params.doors || 1;
+    // Fallback when no door-width formula is defined for the subsystem
     doorWidth = Math.floor(fullWidth / numDoors);
   }
   vars["Ширина двери"] = doorWidth;

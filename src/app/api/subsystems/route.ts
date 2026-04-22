@@ -39,6 +39,31 @@ export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  await prisma.subsystem.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+
+  const sub = await prisma.subsystem.findUnique({
+    where: { id },
+    include: { system: { select: { name: true, slug: true } } },
+  });
+  if (!sub) return NextResponse.json({ error: "Subsystem not found" }, { status: 404 });
+
+  const result = await prisma.$transaction(async (tx) => {
+    // Linked formulas (matched by string name)
+    const deletedFormulas = await tx.systemFormula.deleteMany({
+      where: { systemName: sub.system.name, subsystemName: sub.name },
+    });
+
+    // Visual variants (cascades to schemes + variant items via Prisma onDelete: Cascade)
+    const deletedVariants = await tx.subsystemVariant.deleteMany({
+      where: { systemSlug: sub.system.slug, subsystemName: sub.name },
+    });
+
+    await tx.subsystem.delete({ where: { id } });
+
+    return {
+      formulas: deletedFormulas.count,
+      variants: deletedVariants.count,
+    };
+  });
+
+  return NextResponse.json({ ok: true, deleted: result });
 }

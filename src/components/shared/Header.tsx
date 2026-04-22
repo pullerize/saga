@@ -6,7 +6,6 @@ import { useRouter, usePathname } from "next/navigation";
 import { Logo } from "./Logo";
 import { Button } from "@/components/ui/button";
 import { useCalculatorStore } from "@/stores/calculator";
-import { systemsData } from "@/lib/calculations/systemsData";
 import { LogIn, LogOut, Shield, Menu, X, Check } from "lucide-react";
 import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";

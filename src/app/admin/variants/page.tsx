@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { systemsData } from "@/lib/calculations/systemsData";
 import {
   ArrowLeft,
   Plus,
@@ -32,7 +31,13 @@ interface Scheme {
   id?: string;
   label: string;
   svgContent: string;
-  ratioType?: string | null; // "wide", "square", "tall", null
+  // Scheme type:
+  //   "wide" | "square" | "tall" — system view (one of three based on opening ratio)
+  //   "door" — door scheme (always shown)
+  //   "side" — side view (always shown)
+  //   "top"  — top view (always shown)
+  //   null   — legacy door (kept for backward compat)
+  ratioType?: string | null;
 }
 
 interface Variant {
@@ -43,6 +48,20 @@ interface Variant {
   railImageUrl: string | null;
   items: VariantItem[];
   schemes: Scheme[];
+}
+
+interface DBSubsystem {
+  id: string;
+  name: string;
+  sortOrder: number;
+}
+
+interface DBSystem {
+  id: string;
+  slug: string;
+  name: string;
+  sortOrder: number;
+  subsystems: DBSubsystem[];
 }
 
 /* ─── Item editor row ─── */
@@ -181,12 +200,19 @@ function SchemeRow({
         <select
           value={scheme.ratioType || ""}
           onChange={(e) => onChange({ ...scheme, ratioType: e.target.value || null })}
-          className="h-8 text-xs rounded-md border border-border bg-background px-2 w-36"
+          className="h-8 text-xs rounded-md border border-border bg-background px-2 w-44"
         >
-          <option value="">Всегда (дверь)</option>
-          <option value="wide">Широкий проём</option>
-          <option value="square">Квадратный</option>
-          <option value="tall">Высокий проём</option>
+          <optgroup label="Система (один из)">
+            <option value="wide">Широкий проём</option>
+            <option value="square">Квадратный</option>
+            <option value="tall">Высокий проём</option>
+          </optgroup>
+          <optgroup label="Всегда отображается">
+            <option value="door">Дверь</option>
+            <option value="side">Вид сбоку</option>
+            <option value="top">Вид сверху</option>
+          </optgroup>
+          <option value="">— не указано —</option>
         </select>
         <input ref={fileRef} type="file" accept=".svg" className="hidden" onChange={handleFile} />
         <Button variant="outline" size="sm" className="h-8 text-xs gap-1 shrink-0" onClick={() => fileRef.current?.click()}>
@@ -382,6 +408,7 @@ function VariantEditor({
 /* ─── Main page ─── */
 export default function VariantsPage() {
   const [variants, setVariants] = useState<Variant[]>([]);
+  const [systems, setSystems] = useState<DBSystem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -392,15 +419,33 @@ export default function VariantsPage() {
     try {
       const res = await fetch("/api/variants");
       if (res.ok) setVariants(await res.json());
-    } catch { /* ignore */ } finally { setLoading(false); }
+    } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { fetchVariants(); }, [fetchVariants]);
+  const fetchSystems = useCallback(async () => {
+    try {
+      const res = await fetch("/api/systems");
+      if (res.ok) setSystems(await res.json());
+    } catch { /* ignore */ }
+  }, []);
 
-  const systemEntries = useMemo(() => Object.entries(systemsData), []);
+  useEffect(() => {
+    Promise.all([fetchVariants(), fetchSystems()]).finally(() => setLoading(false));
+  }, [fetchVariants, fetchSystems]);
 
-  const selectedSystemData = selectedSystem ? systemsData[selectedSystem] : null;
-  const subsystems = selectedSystemData ? Object.keys(selectedSystemData.subsystems) : [];
+  const systemEntries = useMemo(
+    () => systems.map((s) => [s.slug, s] as const),
+    [systems]
+  );
+
+  const selectedSystemData = useMemo(
+    () => systems.find((s) => s.slug === selectedSystem) ?? null,
+    [systems, selectedSystem]
+  );
+  const subsystems = useMemo(
+    () => (selectedSystemData ? selectedSystemData.subsystems.map((s) => s.name) : []),
+    [selectedSystemData]
+  );
 
   // Variants for selected system
   const systemVariants = useMemo(() => {

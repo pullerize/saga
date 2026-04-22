@@ -1,75 +1,76 @@
 "use client";
 
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import { Logo } from "@/components/shared/Logo";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Calculator,
-  FileText,
-  ArrowRight,
-  LogOut,
-} from "lucide-react";
+import { Users, LogOut } from "lucide-react";
+
+const navGroups = [
+  {
+    title: "Работа с клиентами",
+    items: [
+      {
+        href: "/partner/clients",
+        label: "Карточки клиентов",
+        icon: Users,
+        description: "Создать и вести карточки клиентов",
+      },
+    ],
+  },
+];
 
 export default function PartnerDashboard() {
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-border/40 flex items-center justify-between px-6">
         <div className="flex items-center gap-4">
           <Logo size="sm" />
-          <span className="text-sm font-semibold text-brand-600">Кабинет партнёра</span>
+          <span className="text-sm font-semibold text-brand-600">Кабинет</span>
         </div>
-        <Link href="/auth/login">
-          <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
-            <LogOut className="w-4 h-4" />
-            Выйти
-          </Button>
-        </Link>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-2 text-muted-foreground"
+          onClick={() => signOut({ callbackUrl: "/auth/login" })}
+        >
+          <LogOut className="w-4 h-4" />
+          Выйти
+        </Button>
       </header>
 
-      {/* Content */}
-      <main className="max-w-4xl mx-auto px-6 py-10">
+      <main className="max-w-6xl mx-auto px-6 py-10">
         <div className="mb-10">
-          <h1 className="font-display text-3xl font-bold tracking-tight">
-            Добро пожаловать!
-          </h1>
-          <p className="text-muted-foreground mt-1">Панель партнёра SAGA</p>
+          <h1 className="font-display text-3xl font-bold tracking-tight">Панель управления</h1>
+          <p className="text-muted-foreground mt-1">Кабинет SAGA</p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Link href="/partner/calculations">
-            <Card className="cursor-pointer hover:border-brand-300 transition-colors">
-              <CardContent className="flex items-center justify-between p-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-brand-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium">Мои расчёты</p>
-                    <p className="text-sm text-muted-foreground">История всех расчётов</p>
-                  </div>
-                </div>
-                <ArrowRight className="w-5 h-5 text-muted-foreground" />
-              </CardContent>
-            </Card>
-          </Link>
-          <Link href="/calculator">
-            <Card className="cursor-pointer hover:border-brand-300 transition-colors">
-              <CardContent className="flex items-center justify-between p-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center">
-                    <Calculator className="w-5 h-5 text-brand-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium">Новый расчёт</p>
-                    <p className="text-sm text-muted-foreground">Открыть калькулятор</p>
-                  </div>
-                </div>
-                <ArrowRight className="w-5 h-5 text-muted-foreground" />
-              </CardContent>
-            </Card>
-          </Link>
+        <div className="space-y-10">
+          {navGroups.map((group) => (
+            <div key={group.title}>
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
+                {group.title}
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {group.items.map((item) => (
+                  <Link key={item.href} href={item.href}>
+                    <Card className="h-full cursor-pointer hover:border-brand-300 hover:-translate-y-0.5 transition-all duration-300">
+                      <CardHeader className="flex flex-row items-center gap-3 pb-2">
+                        <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center">
+                          <item.icon className="w-5 h-5 text-brand-600" />
+                        </div>
+                        <CardTitle className="text-base">{item.label}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground">{item.description}</p>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </main>
     </div>

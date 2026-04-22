@@ -1,23 +1,28 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowRight, Play } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PreviewModal } from "@/components/calculator/PreviewModal";
 import { systemMedia } from "@/lib/calculations/media";
-import { systemsData } from "@/lib/calculations/systemsData";
 
-const systems = [
-  { slug: "cascade", name: "Каскадные двери", description: "Панели 3-8, плавное каскадное движение" },
-  { slug: "sync", name: "Синхронные двери", description: "Синхронное открывание с обеих сторон" },
-  { slug: "unlinked", name: "Не связанные двери", description: "Независимое движение каждой панели" },
-  { slug: "embedded-wall", name: "Врезанные в стену", description: "Интеграция в стеновую конструкцию" },
-  { slug: "partition", name: "Стена-перегородка", description: "Трансформируемые перегородки" },
-  { slug: "wall-mounted", name: "Настенные двери", description: "Крепление на стену с внешним механизмом" },
-  { slug: "angle", name: "Угловое примыкание", description: "Системы с угловым соединением" },
-];
+const SYSTEM_DESCRIPTIONS: Record<string, string> = {
+  cascade: "Панели 3-8, плавное каскадное движение",
+  sync: "Синхронное открывание с обеих сторон",
+  unlinked: "Независимое движение каждой панели",
+  "embedded-wall": "Интеграция в стеновую конструкцию",
+  partition: "Трансформируемые перегородки",
+  "wall-mounted": "Крепление на стену с внешним механизмом",
+  angle: "Системы с угловым соединением",
+};
+
+interface DBSystem {
+  slug: string;
+  name: string;
+  subsystems: { id: string }[];
+}
 
 interface SystemsGridProps {
   /** Where to navigate after selecting a system. Defaults to "/auth/login" */
@@ -27,16 +32,30 @@ interface SystemsGridProps {
 export function SystemsGrid({ targetPath = "auth" }: SystemsGridProps) {
   const router = useRouter();
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
+  const [systems, setSystems] = useState<
+    Array<{ slug: string; name: string; description: string; subsystems: number }>
+  >([]);
+
+  useEffect(() => {
+    fetch("/api/systems")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: DBSystem[]) => {
+        setSystems(
+          data.map((s) => ({
+            slug: s.slug,
+            name: s.name,
+            description: SYSTEM_DESCRIPTIONS[s.slug] ?? "",
+            subsystems: s.subsystems.length,
+          }))
+        );
+      })
+      .catch(() => setSystems([]));
+  }, []);
 
   const previewSystem = previewSlug ? systems.find((s) => s.slug === previewSlug) : null;
   const previewMedia = previewSlug && systemMedia[previewSlug]
     ? { type: "video" as const, src: systemMedia[previewSlug].video, poster: systemMedia[previewSlug].poster }
     : null;
-
-  const subsystemCount = (slug: string) => {
-    const sys = systemsData[slug];
-    return sys ? Object.keys(sys.subsystems).length : 0;
-  };
 
   return (
     <>
@@ -80,7 +99,7 @@ export function SystemsGrid({ targetPath = "auth" }: SystemsGridProps) {
                   slug={system.slug}
                   name={system.name}
                   description={system.description}
-                  subsystems={subsystemCount(system.slug)}
+                  subsystems={system.subsystems}
                   onClick={() => setPreviewSlug(system.slug)}
                 />
               </motion.div>
@@ -101,7 +120,7 @@ export function SystemsGrid({ targetPath = "auth" }: SystemsGridProps) {
                   slug={system.slug}
                   name={system.name}
                   description={system.description}
-                  subsystems={subsystemCount(system.slug)}
+                  subsystems={system.subsystems}
                   onClick={() => setPreviewSlug(system.slug)}
                 />
               </motion.div>

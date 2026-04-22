@@ -26,18 +26,16 @@ interface ClientCard extends ClientCardData {
   companyName: string;
 }
 
-export default function AdminCalculatorPage() {
+export default function PartnerClientsPage() {
   const [view, setView] = useState<"list" | "create" | "edit">("list");
   const [cards, setCards] = useState<ClientCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [companyFilter, setCompanyFilter] = useState<string>("ALL");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const editingCard = editingId ? cards.find((c) => c.id === editingId) : null;
 
-  // Fetch cards from API
   const fetchCards = useCallback(async () => {
     try {
       const res = await fetch("/api/client-cards");
@@ -56,7 +54,6 @@ export default function AdminCalculatorPage() {
     fetchCards();
   }, [fetchCards]);
 
-  // Deduplicate clients by name for the combobox
   const uniqueClients: KnownClient[] = useMemo(() => {
     const seen = new Set<string>();
     return cards.reduce<KnownClient[]>((acc, c) => {
@@ -69,21 +66,12 @@ export default function AdminCalculatorPage() {
     }, []);
   }, [cards]);
 
-  const uniqueCompanies = useMemo(() => {
-    const set = new Set<string>();
-    cards.forEach((c) => set.add(c.companyName));
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "ru"));
-  }, [cards]);
-
   const filteredCards = cards.filter((c) => {
-    if (companyFilter !== "ALL" && c.companyName !== companyFilter) return false;
     const q = search.toLowerCase();
-    if (!q) return true;
     return (
       c.clientName.toLowerCase().includes(q) ||
       c.clientPhone.includes(q) ||
-      c.systemName.toLowerCase().includes(q) ||
-      (c.companyName ?? "").toLowerCase().includes(q)
+      c.systemName.toLowerCase().includes(q)
     );
   });
 
@@ -132,9 +120,9 @@ export default function AdminCalculatorPage() {
       <header className="sticky top-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-border/40 flex items-center justify-between px-6">
         <div className="flex items-center gap-4">
           <Logo size="sm" />
-          <span className="text-sm font-semibold text-brand-600">Админ-панель</span>
+          <span className="text-sm font-semibold text-brand-600">Кабинет</span>
         </div>
-        <Link href="/admin">
+        <Link href="/partner">
           <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
             <ArrowLeft className="w-4 h-4" />
             Назад
@@ -145,7 +133,6 @@ export default function AdminCalculatorPage() {
       <main className="max-w-5xl mx-auto px-6 py-10">
         {view === "list" ? (
           <>
-            {/* Header */}
             <div className="flex items-center justify-between mb-8">
               <div>
                 <h1 className="font-display text-2xl font-bold text-foreground">Карточки клиентов</h1>
@@ -166,63 +153,25 @@ export default function AdminCalculatorPage() {
               </Button>
             </div>
 
-            {/* Search + company filter */}
             {cards.length > 0 && (
-              <div className="space-y-3 mb-6">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Поиск по имени, телефону, системе или компании..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full h-11 pl-10 pr-4 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
-                  />
-                </div>
-                {uniqueCompanies.length > 1 && (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCompanyFilter("ALL")}
-                      className={`px-3 h-9 rounded-lg text-xs font-medium border transition-colors ${
-                        companyFilter === "ALL"
-                          ? "bg-brand-700 text-white border-brand-700"
-                          : "bg-background text-foreground border-input hover:bg-muted"
-                      }`}
-                    >
-                      Все компании ({cards.length})
-                    </button>
-                    {uniqueCompanies.map((company) => {
-                      const count = cards.filter((c) => c.companyName === company).length;
-                      return (
-                        <button
-                          key={company}
-                          type="button"
-                          onClick={() => setCompanyFilter(company)}
-                          className={`px-3 h-9 rounded-lg text-xs font-medium border transition-colors inline-flex items-center gap-1.5 ${
-                            companyFilter === company
-                              ? "bg-brand-700 text-white border-brand-700"
-                              : "bg-background text-foreground border-input hover:bg-muted"
-                          }`}
-                        >
-                          <Building2 className="w-3 h-3" />
-                          {company} ({count})
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+              <div className="relative mb-6">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Поиск по имени, телефону или системе..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full h-11 pl-10 pr-4 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+                />
               </div>
             )}
 
-            {/* Loading */}
             {loading && (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
               </div>
             )}
 
-            {/* Cards list */}
             {!loading && filteredCards.length > 0 ? (
               <div className="space-y-3">
                 {filteredCards.map((card) => (

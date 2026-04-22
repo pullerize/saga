@@ -339,9 +339,11 @@ function SubsystemForm({
   const [formulaOpenKey, setFormulaOpenKey] = useState<string | null>(null);
 
   const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState<number | "">("");
   const [paramSearch, setParamSearch] = useState("");
   const [paramDropdownOpen, setParamDropdownOpen] = useState(false);
   const paramDropdownRef = useRef<HTMLDivElement>(null);
+  const newValueRef = useRef<HTMLInputElement>(null);
 
   const availableParams = paramDefs
     .filter((d) => d.category === "subsystem" && !params.some((p) => p.key === d.key))
@@ -358,8 +360,9 @@ function SubsystemForm({
   function addParam() {
     const trimmed = newKey.trim();
     if (!trimmed || params.some((p) => p.key === trimmed)) return;
-    setParams([...params, { key: trimmed, value: 0 }]);
+    setParams([...params, { key: trimmed, value: Number(newValue) || 0 }]);
     setNewKey("");
+    setNewValue("");
     setParamSearch("");
     setParamDropdownOpen(false);
   }
@@ -463,7 +466,7 @@ function SubsystemForm({
             </div>
           )}
 
-          {/* Add new param with search */}
+          {/* Add new param with search + value */}
           <div ref={paramDropdownRef} className="relative">
             <div className="flex items-center gap-2">
               <Input
@@ -474,12 +477,22 @@ function SubsystemForm({
                 className="h-8 text-xs flex-1"
                 autoComplete="one-time-code"
               />
+              <Input
+                ref={newValueRef}
+                type="number"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value === "" ? "" : Number(e.target.value))}
+                onKeyDown={(e) => { if (e.key === "Enter" && newKey.trim()) { e.preventDefault(); addParam(); } }}
+                placeholder="Кол-во"
+                className="w-20 h-8 text-xs shrink-0"
+                disabled={!newKey.trim()}
+              />
               <Button variant="outline" size="sm" className="h-8 gap-1 text-xs shrink-0" onClick={addParam} disabled={!newKey.trim()}>
                 <Plus className="w-3 h-3" /> Добавить
               </Button>
             </div>
             {paramDropdownOpen && availableParams.length > 0 && (
-              <div className="absolute z-50 top-full left-0 right-12 mt-1 bg-card border border-border rounded-xl shadow-xl max-h-52 overflow-y-auto py-1">
+              <div className="absolute z-50 top-full left-0 right-32 mt-1 bg-card border border-border rounded-xl shadow-xl max-h-52 overflow-y-auto py-1">
                 {availableParams.map((d) => (
                   <button
                     key={d.key}
@@ -489,6 +502,7 @@ function SubsystemForm({
                       setNewKey(d.key);
                       setParamSearch(d.label);
                       setParamDropdownOpen(false);
+                      setTimeout(() => newValueRef.current?.focus(), 0);
                     }}
                   >
                     {d.label}
@@ -497,7 +511,7 @@ function SubsystemForm({
               </div>
             )}
             {paramDropdownOpen && availableParams.length === 0 && paramSearch && (
-              <div className="absolute z-50 top-full left-0 right-12 mt-1 bg-card border border-border rounded-xl shadow-xl px-4 py-3">
+              <div className="absolute z-50 top-full left-0 right-32 mt-1 bg-card border border-border rounded-xl shadow-xl px-4 py-3">
                 <p className="text-xs text-muted-foreground">Не найдено</p>
               </div>
             )}
@@ -839,6 +853,7 @@ export default function SystemsPage() {
   }
 
   async function handleDeleteSub(id: string) {
+    if (!confirm("Удалить подсистему? Будут также удалены все её формулы расчёта и визуальные варианты.")) return;
     setDeletingSubId(id);
     await fetch(`/api/subsystems?id=${id}`, { method: "DELETE" });
     setDeletingSubId(null);

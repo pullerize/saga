@@ -21,6 +21,7 @@ import {
   Phone,
   MapPin,
   UserCheck,
+  X,
 } from "lucide-react";
 
 /* ─── Known client type ─── */
@@ -235,6 +236,7 @@ export interface ClientCardData {
   doorWidth: number;
   totalPrice: number;
   components: CalcComponent[];
+  customServices?: Array<{ name: string; description: string; price: number }>;
 }
 
 interface ClientCardFormProps {
@@ -283,6 +285,15 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
   const [fullWidth, setFullWidth] = useState(initialData?.fullWidth ?? 0);
   const [openWidth, setOpenWidth] = useState(initialData?.openWidth ?? 0);
   const [height, setHeight] = useState(initialData?.height ?? 0);
+
+  // Custom services
+  interface CustomService { name: string; description: string; price: number }
+  const [customServices, setCustomServices] = useState<CustomService[]>(
+    initialData?.customServices ?? [
+      { name: "Боковая обшивка", description: "", price: 0 },
+      { name: "Закладные", description: "", price: 0 },
+    ]
+  );
 
   // Result
   const [result, setResult] = useState<{
@@ -353,18 +364,22 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
     return null;
   }, [subsystemId, availableSubsystems]);
 
-  // Load variant when subsystem changes
+  // Load variant when subsystem changes. If no variant exists for the chosen subsystem,
+  // fall back to any variant of the same system (so admin can define visuals once and
+  // they apply to every subsystem until individual ones are configured).
   useEffect(() => {
-    const sub = effectiveSubsystem || subsystemId;
-    if (!systemSlug || !sub) { setVariantData(null); return; }
+    const sub = effectiveSubsystem || subsystemId || initialData?.subsystem;
+    const slug = systemSlug || initialData?.systemSlug;
+    if (!slug || !sub) { setVariantData(null); return; }
     fetch("/api/variants")
       .then((r) => r.ok ? r.json() : [])
       .then((variants: Array<{ systemSlug: string; subsystemName: string; variantName: string; railImageUrl?: string | null; items: { title: string; description: string; iconUrl: string | null }[]; schemes?: { label: string; svgContent: string; ratioType?: string | null }[] }>) => {
-        const v = variants.find((x) => x.systemSlug === systemSlug && x.subsystemName === sub);
-        setVariantData(v ? { variantName: v.variantName, railImageUrl: v.railImageUrl, items: v.items, schemes: v.schemes } : null);
+        const exact = variants.find((x) => x.systemSlug === slug && x.subsystemName === sub);
+        const fallback = exact || variants.find((x) => x.systemSlug === slug) || null;
+        setVariantData(fallback ? { variantName: fallback.variantName, railImageUrl: fallback.railImageUrl, items: fallback.items, schemes: fallback.schemes } : null);
       })
       .catch(() => setVariantData(null));
-  }, [systemSlug, effectiveSubsystem, subsystemId]);
+  }, [systemSlug, effectiveSubsystem, subsystemId, initialData?.subsystem, initialData?.systemSlug]);
 
   const filteredShotlanOptions = useMemo(() => {
     if (glass === "Рифленое") {
@@ -398,7 +413,24 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
     }
   }, [canCalculate, systemSlug, effectiveSubsystem, system, glass, shotlan, fullWidth, openWidth, height]);
 
-  const systemEntries = Object.entries(systemsData);
+  // Filter systems by what's actually present in DB
+  const [activeSlugs, setActiveSlugs] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    fetch("/api/systems")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Array<{ slug: string }>) =>
+        setActiveSlugs(new Set(rows.map((r) => r.slug)))
+      )
+      .catch(() => setActiveSlugs(new Set()));
+  }, []);
+
+  const systemEntries = useMemo(
+    () =>
+      Object.entries(systemsData).filter(
+        ([slug]) => !activeSlugs || activeSlugs.has(slug)
+      ),
+    [activeSlugs]
+  );
 
   return (
     <div className="space-y-6">
@@ -698,6 +730,51 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
                   onChange={(v) => { setShotlan(v); setResult(null); }}
                 />
               </Section>
+
+              {/* Custom services */}
+              <Section title="Дополнительные услуги">
+                <div className="space-y-2">
+                  {customServices.map((svc, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        value={svc.name}
+                        onChange={(e) => { const arr = [...customServices]; arr[i] = { ...arr[i], name: e.target.value }; setCustomServices(arr); }}
+                        placeholder="Название"
+                        className="h-8 px-2 text-xs rounded-md border border-border bg-background w-36 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+                        autoComplete="one-time-code"
+                      />
+                      <input
+                        value={svc.description}
+                        onChange={(e) => { const arr = [...customServices]; arr[i] = { ...arr[i], description: e.target.value }; setCustomServices(arr); }}
+                        placeholder="Описание"
+                        className="h-8 px-2 text-xs rounded-md border border-border bg-background flex-1 focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+                        autoComplete="one-time-code"
+                      />
+                      <input
+                        type="number"
+                        value={svc.price || ""}
+                        onChange={(e) => { const arr = [...customServices]; arr[i] = { ...arr[i], price: Number(e.target.value) }; setCustomServices(arr); }}
+                        placeholder="Цена"
+                        className="h-8 px-2 text-xs rounded-md border border-border bg-background w-20 text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-brand-500/30"
+                        step="0.01"
+                      />
+                      <span className="text-[10px] text-muted-foreground">у.е.</span>
+                      <button
+                        onClick={() => setCustomServices(customServices.filter((_, j) => j !== i))}
+                        className="text-muted-foreground hover:text-destructive cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setCustomServices([...customServices, { name: "", description: "", price: 0 }])}
+                    className="text-xs text-brand-600 hover:text-brand-700 cursor-pointer flex items-center gap-1"
+                  >
+                    <span>+</span> Добавить услугу
+                  </button>
+                </div>
+              </Section>
             </>
           )}
 
@@ -733,16 +810,17 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
               managerPhone: selectedManager?.phone,
               branchAddress: branchAddress || "",
               systemName: system.name,
-              subsystem: effectiveSubsystem || "",
+              subsystem: effectiveSubsystem || subsystemId || initialData?.subsystem || "",
               fullWidth,
               openWidth: system.extraField ? openWidth : undefined,
               height,
               doorWidth: result.doorWidth,
-              glass: glass || "",
+              glass: glass || initialData?.glass || "",
               shotlan,
               glassImageUrl,
               components: result.components,
               totalPrice: result.total,
+              customServices: customServices.filter(s => s.name.trim() && s.price > 0),
               variant: variantData,
             }}
           />
@@ -764,17 +842,18 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
                     clientAddress,
                     managerName: selectedManager?.name || "",
                     branch: branchAddress || "",
-                    systemSlug: systemSlug || undefined,
+                    systemSlug: systemSlug || initialData?.systemSlug || undefined,
                     systemName: system.name,
-                    subsystem: effectiveSubsystem,
-                    glass: glass || "",
-                    shotlan,
-                    fullWidth,
-                    openWidth,
-                    height,
+                    subsystem: effectiveSubsystem || subsystemId || initialData?.subsystem || "",
+                    glass: glass || initialData?.glass || "",
+                    shotlan: shotlan || initialData?.shotlan || "Без шотланок",
+                    fullWidth: fullWidth || initialData?.fullWidth || 0,
+                    openWidth: openWidth || initialData?.openWidth || 0,
+                    height: height || initialData?.height || 0,
                     doorWidth: result.doorWidth,
                     totalPrice: result.total,
                     components: result.components,
+                    customServices: customServices.filter(s => s.name.trim() && s.price > 0),
                   });
                 }
               }}

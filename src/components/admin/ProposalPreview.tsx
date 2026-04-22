@@ -50,30 +50,34 @@ function renderSvgWithDimensions(
     .replace(/\{\{DOOR_WIDTH\}\}/g, String(doorWidth))
     .replace(/\{\{DOORS\}\}/g, "");
 
+  // Force a consistent font family for any <text> elements already baked into the SVG,
+  // so embedded size labels don't look out of place next to the ones we add below.
+  svg = svg.replace(/<text\b([^>]*)>/gi, (_, attrs) => {
+    const cleaned = attrs
+      .replace(/\sfont-family\s*=\s*["'][^"']*["']/gi, "")
+      .replace(/\sfont-weight\s*=\s*["'][^"']*["']/gi, "");
+    return `<text${cleaned} font-family="Arial, Helvetica, sans-serif" font-weight="700">`;
+  });
+
   // Parse viewBox
   const vbMatch = svg.match(/viewBox\s*=\s*["']([^"']+)["']/);
   if (!vbMatch) return svg;
   const parts = vbMatch[1].split(/[\s,]+/).map(Number);
   const vbX = parts[0], vbY = parts[1], svgW = parts[2], svgH = parts[3];
 
-  // Find the grey rect to get actual content bounds
-  const greyRect = svg.match(/<rect[^>]*fill="#D9D9D9"[^>]*/);
-  let contentX = 0, contentY = 0, contentW = svgW * 0.9, contentH = svgH * 0.95;
-  if (greyRect) {
-    const xM = greyRect[0].match(/x="([\d.]+)"/);
-    const yM = greyRect[0].match(/y="([\d.]+)"/);
-    const wM = greyRect[0].match(/width="([\d.]+)"/);
-    const hM = greyRect[0].match(/height="([\d.]+)"/);
-    if (xM) contentX = parseFloat(xM[1]);
-    if (yM) contentY = parseFloat(yM[1]);
-    if (wM) contentW = parseFloat(wM[1]);
-    if (hM) contentH = parseFloat(hM[1]);
-  }
-
   const dimW = schemeIndex === 0 ? width : doorWidth;
   const dimH = height;
 
-  // Scale dimensions relative to SVG size
+  // Which labels to draw per scheme type:
+  //   0 — system: width (bottom) + height (right)
+  //   1 — door:   doorWidth (bottom) + height (right)
+  //   2 — side:   height (right) only. The bottom is a thin slice.
+  //   3 — top:    width (bottom) only.
+  const showBottom = schemeIndex !== 2;
+  const showRight = schemeIndex !== 3;
+
+  // Always scale from the LONGEST side — this keeps the font size proportional
+  // to the drawing regardless of whether it's narrow (side) or wide (top).
   const sc = Math.max(svgW, svgH) / 200;
   const lineW = Math.max(sc * 0.3, 0.5);
   const tickL = Math.round(sc * 2);
@@ -81,40 +85,57 @@ function renderSvgWithDimensions(
   const gap = Math.round(sc * 3);
 
   // Bottom dimension line (width)
-  const bLineY = contentY + contentH + gap;
-  const bLeft = contentX;
-  const bRight = contentX + contentW;
-  const bMidX = contentX + contentW / 2;
+  const bLineY = vbY + svgH + gap;
+  const bLeft = vbX;
+  const bRight = vbX + svgW;
+  const bMidX = vbX + svgW / 2;
   const bTextY = bLineY + gap + fontSize;
 
   // Right dimension line (height)
-  const rLineX = contentX + contentW + gap;
-  const rTop = contentY;
-  const rBottom = contentY + contentH;
-  const rMidY = contentY + contentH / 2;
+  const rLineX = vbX + svgW + gap;
+  const rTop = vbY;
+  const rBottom = vbY + svgH;
+  const rMidY = vbY + svgH / 2;
   const rTextX = rLineX + gap + fontSize;
 
-  const dimLines = [
-    `<g fill="none" stroke="#333" stroke-width="${lineW}">`,
-    // Bottom: horizontal line + ticks
-    `<line x1="${bLeft}" y1="${bLineY}" x2="${bRight}" y2="${bLineY}"/>`,
-    `<line x1="${bLeft}" y1="${bLineY - tickL}" x2="${bLeft}" y2="${bLineY + tickL}"/>`,
-    `<line x1="${bRight}" y1="${bLineY - tickL}" x2="${bRight}" y2="${bLineY + tickL}"/>`,
-    // Right: vertical line + ticks
-    `<line x1="${rLineX}" y1="${rTop}" x2="${rLineX}" y2="${rBottom}"/>`,
-    `<line x1="${rLineX - tickL}" y1="${rTop}" x2="${rLineX + tickL}" y2="${rTop}"/>`,
-    `<line x1="${rLineX - tickL}" y1="${rBottom}" x2="${rLineX + tickL}" y2="${rBottom}"/>`,
-    `</g>`,
-    // Labels
-    `<g font-family="Arial,sans-serif" fill="#0A3C46" font-weight="bold" font-size="${fontSize}">`,
-    `<text x="${bMidX}" y="${bTextY}" text-anchor="middle">${dimW} мм</text>`,
-    `<text x="${rTextX}" y="${rMidY}" text-anchor="middle" transform="rotate(90,${rTextX},${rMidY})">${dimH} мм</text>`,
-    `</g>`,
-  ].join("\n");
+  const labelPad = Math.max(fontSize * 0.5, 6);
 
-  // Expand viewBox to fit dimension lines and text
-  const newW = Math.round(rTextX + fontSize * 3 - vbX);
-  const newH = Math.round(bTextY + fontSize - vbY);
+  const bits: string[] = [];
+  bits.push(`<g fill="none" stroke="#333" stroke-width="${lineW}">`);
+  if (showBottom) {
+    bits.push(
+      `<line x1="${bLeft}" y1="${bLineY}" x2="${bRight}" y2="${bLineY}"/>`,
+      `<line x1="${bLeft}" y1="${bLineY - tickL}" x2="${bLeft}" y2="${bLineY + tickL}"/>`,
+      `<line x1="${bRight}" y1="${bLineY - tickL}" x2="${bRight}" y2="${bLineY + tickL}"/>`,
+    );
+  }
+  if (showRight) {
+    bits.push(
+      `<line x1="${rLineX}" y1="${rTop}" x2="${rLineX}" y2="${rBottom}"/>`,
+      `<line x1="${rLineX - tickL}" y1="${rTop}" x2="${rLineX + tickL}" y2="${rTop}"/>`,
+      `<line x1="${rLineX - tickL}" y1="${rBottom}" x2="${rLineX + tickL}" y2="${rBottom}"/>`,
+    );
+  }
+  bits.push(`</g>`);
+  bits.push(`<g font-family="Arial, Helvetica, sans-serif" fill="#0A3C46" font-weight="700" font-size="${fontSize}">`);
+  if (showBottom) {
+    bits.push(`<text x="${bMidX}" y="${bTextY}" text-anchor="middle">${dimW} мм</text>`);
+  }
+  if (showRight) {
+    bits.push(`<text x="${rTextX}" y="${rMidY}" text-anchor="middle" transform="rotate(90,${rTextX},${rMidY})">${dimH} мм</text>`);
+  }
+  bits.push(`</g>`);
+  const dimLines = bits.join("\n");
+
+  // Always reserve the same padding on all four sides so every scheme in a row renders
+  // with the same visual proportions, even when a particular view doesn't carry a label
+  // on a given side (e.g. side-view has no bottom label). Without this, side-view's
+  // drawing extends the full picture height while system/door lose ~10% of their height
+  // to the bottom label area, making them look shorter in the row.
+  const extraRight = gap * 2 + labelPad + fontSize * 2;
+  const extraBottom = gap * 2 + labelPad + fontSize;
+  const newW = Math.round(svgW + extraRight);
+  const newH = Math.round(svgH + extraBottom);
   svg = svg.replace(vbMatch[0], `viewBox="${vbX} ${vbY} ${newW} ${newH}"`);
 
   // Also update width/height attributes on <svg>
@@ -139,6 +160,8 @@ interface SchemeData {
   ratioType?: string | null;
 }
 
+const SYSTEM_RATIO_TYPES = new Set(["wide", "square", "tall"]);
+
 /**
  * Pick the right system scheme based on width/height ratio.
  * "wide" = width > height * 1.15
@@ -152,16 +175,44 @@ function pickSystemScheme(schemes: SchemeData[], width: number, height: number):
   else if (ratio < 0.87) type = "tall";
   else type = "square";
 
-  // Find matching scheme
-  const match = schemes.find(s => s.ratioType === type);
+  const match = schemes.find((s) => s.ratioType === type);
   if (match) return match;
-
-  // Fallback: first scheme with any ratioType, or first scheme
-  return schemes.find(s => s.ratioType) || schemes[0] || null;
+  // Fallback: any ratio-typed system scheme
+  return schemes.find((s) => s.ratioType && SYSTEM_RATIO_TYPES.has(s.ratioType)) || null;
 }
 
-function getDoorScheme(schemes: SchemeData[]): SchemeData | null {
-  return schemes.find(s => !s.ratioType) || null;
+/**
+ * Get a scheme by its explicit type. For "door" also falls back to legacy
+ * schemes stored with `ratioType = null` (before types were introduced).
+ */
+function getSchemeByType(schemes: SchemeData[], type: "door" | "side" | "top"): SchemeData | null {
+  const byType = schemes.find((s) => s.ratioType === type);
+  if (byType) return byType;
+  if (type === "door") {
+    // Legacy: null ratioType used to mean "door"
+    return schemes.find((s) => !s.ratioType) || null;
+  }
+  return null;
+}
+
+/**
+ * Build the ordered list of schemes to display in preview/PDF:
+ *   1. System view (one of wide/square/tall, picked by ratio)
+ *   2. Door (always)
+ *   3. Side view (always)
+ *   4. Top view (always)
+ */
+function buildDisplaySchemes(schemes: SchemeData[], width: number, height: number): SchemeData[] {
+  const out: SchemeData[] = [];
+  const system = pickSystemScheme(schemes, width, height);
+  if (system) out.push(system);
+  const door = getSchemeByType(schemes, "door");
+  if (door) out.push(door);
+  const side = getSchemeByType(schemes, "side");
+  if (side) out.push(side);
+  const top = getSchemeByType(schemes, "top");
+  if (top) out.push(top);
+  return out;
 }
 
 interface Variant {
@@ -193,6 +244,7 @@ interface ProposalData {
   // Components
   components: CalcComponent[];
   totalPrice: number;
+  customServices?: Array<{ name: string; description: string; price: number }>;
   // Variant (optional)
   variant?: Variant | null;
 }
@@ -245,25 +297,40 @@ export function ProposalPreview({
   onDataChange?: (data: ProposalData) => void;
 }) {
   const [data, setData] = useState(initialData);
+
+  // Sync with parent when initialData changes (e.g. variant loaded async, sizes updated).
+  // Include fullWidth/height/doorWidth so that resizing the opening upstream triggers a
+  // new scheme selection (wide/square/tall) inside this preview.
+  useEffect(() => {
+    setData(initialData);
+  }, [
+    initialData.variant,
+    initialData.glassImageUrl,
+    initialData.customServices,
+    initialData.fullWidth,
+    initialData.height,
+    initialData.doorWidth,
+    initialData.subsystem,
+    initialData.systemName,
+  ]);
   const [schemeSvgUrls, setSchemeSvgUrls] = useState<string[]>([]);
   const [schemeSizes, setSchemeSizes] = useState<Array<{ w: number; h: number }>>([]);
   const [schemeModal, setSchemeModal] = useState<string | null>(null);
 
-  // Upload SVG schemes to server for PDF rendering
-  // Convert selected schemes (system + door) to PNG for PDF
+  // Convert all display schemes (system + door + side + top) to PNG for PDF.
+  // Source sizes from `initialData` (not local `data`) so that when the parent form
+  // recalculates with a new full width, the matching system scheme (wide/square/tall)
+  // is picked immediately, without waiting for the editable-fields state to sync.
   useEffect(() => {
-    if (!data.variant?.schemes?.length) { setSchemeSvgUrls([]); return; }
+    const schemes = initialData.variant?.schemes;
+    if (!schemes?.length) { setSchemeSvgUrls([]); return; }
     let cancelled = false;
 
-    const sysScheme = pickSystemScheme(data.variant.schemes, data.fullWidth, data.height);
-    const doorScheme = getDoorScheme(data.variant.schemes);
-    const toConvert: { scheme: SchemeData; idx: number }[] = [];
-    if (sysScheme) toConvert.push({ scheme: sysScheme, idx: 0 });
-    if (doorScheme) toConvert.push({ scheme: doorScheme, idx: 1 });
+    const toConvert = buildDisplaySchemes(schemes, initialData.fullWidth, initialData.height);
 
     Promise.all(
-      toConvert.map(({ scheme, idx }) => {
-        const rendered = renderSvgWithDimensions(scheme.svgContent, data.fullWidth, data.height, data.doorWidth, 1, idx);
+      toConvert.map((scheme, idx) => {
+        const rendered = renderSvgWithDimensions(scheme.svgContent, initialData.fullWidth, initialData.height, initialData.doorWidth, 1, idx);
         return svgToPngViaServer(rendered).catch(() => ({ dataUrl: "", w: 0, h: 0 }));
       })
     ).then((results) => {
@@ -273,7 +340,7 @@ export function ProposalPreview({
       }
     });
     return () => { cancelled = true; };
-  }, [data.variant?.schemes, data.fullWidth, data.height, data.doorWidth]);
+  }, [initialData.variant?.schemes, initialData.fullWidth, initialData.height, initialData.doorWidth]);
 
   function update(partial: Partial<ProposalData>) {
     const next = { ...data, ...partial };
@@ -356,50 +423,96 @@ export function ProposalPreview({
         </div>
       </div>
 
-      {/* Variant cards */}
+      {/* Variant cards — premium style */}
       {data.variant && data.variant.items.length > 0 && (
-        <div className="rounded-xl border border-border p-4">
-          <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-3">{data.variant.variantName}</p>
+        <div>
+          {/* Section header with gold rule */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-px w-5 bg-gold" />
+            <p className="text-[10px] font-bold text-gold uppercase tracking-[0.25em]">
+              {data.variant.variantName}
+            </p>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
           <div className="grid grid-cols-3 gap-4">
-            {data.variant.items.map((item, i) => (
-              <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30">
-                {item.iconUrl ? (
-                  <img src={item.iconUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
-                ) : (
-                  <div className="w-12 h-12 rounded-lg bg-brand-50 shrink-0" />
-                )}
-                <div>
-                  <p className="text-sm font-semibold">{item.title}</p>
-                  <p className="text-xs text-muted-foreground">{item.description}</p>
+            {data.variant.items.map((item, i) => {
+              const num = String(i + 1).padStart(2, "0");
+              return (
+                <div
+                  key={i}
+                  className="relative flex flex-col items-center rounded-lg border border-border bg-white px-4 pt-5 pb-4 overflow-hidden"
+                >
+                  {/* Top gold accent */}
+                  <div className="absolute left-1/4 right-1/4 top-0 h-0.5 bg-gold" />
+
+                  {/* Card number */}
+                  <span className="absolute right-2.5 top-1.5 text-[10px] font-bold text-gold tracking-widest">
+                    {num}
+                  </span>
+
+                  {/* Icon in circular gold-tinted holder */}
+                  <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full border border-gold-light bg-brand-50/40">
+                    {item.iconUrl ? (
+                      <img src={item.iconUrl} alt="" className="h-10 w-10 object-contain" />
+                    ) : (
+                      <div className="h-10 w-10 rounded bg-border" />
+                    )}
+                  </div>
+
+                  {/* Title */}
+                  <p className="text-sm font-bold text-center text-foreground mb-1.5 tracking-wide">
+                    {item.title}
+                  </p>
+
+                  {/* Gold divider */}
+                  <div className="h-px w-5 bg-gold/60 mb-2" />
+
+                  {/* Description */}
+                  {item.description && (
+                    <p className="text-[11px] text-muted-foreground text-center leading-snug">
+                      {item.description}
+                    </p>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* SVG Schemes */}
-      {data.variant?.schemes && data.variant.schemes.length > 0 && (
+      {/* SVG Schemes — 4 schemes: system (ratio-based) + door + side + top.
+          Pull sizes from initialData so the ratio-based picker always sees the
+          latest values from the parent form. */}
+      {initialData.variant?.schemes && initialData.variant.schemes.length > 0 && (
         <div className="rounded-xl border border-border p-4">
           <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-3">Схемы</p>
-          <div className="flex items-end gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {(() => {
-              const h = 260;
-              const sysScheme = pickSystemScheme(data.variant!.schemes!, data.fullWidth, data.height);
-              const doorScheme = getDoorScheme(data.variant!.schemes!);
-              const toShow: { scheme: SchemeData; idx: number }[] = [];
-              if (sysScheme) toShow.push({ scheme: sysScheme, idx: 0 });
-              if (doorScheme) toShow.push({ scheme: doorScheme, idx: 1 });
+              const h = 200;
+              const toShow = buildDisplaySchemes(initialData.variant!.schemes!, initialData.fullWidth, initialData.height);
+              const labelFallbacks: Record<string, string> = {
+                wide: "Широкий проём",
+                square: "Квадратный проём",
+                tall: "Высокий проём",
+                door: "Дверь",
+                side: "Вид сбоку",
+                top: "Вид сверху",
+              };
 
-              return toShow.map(({ scheme, idx }) => {
-                const rendered = renderSvgWithDimensions(scheme.svgContent, data.fullWidth, data.height, data.doorWidth, 1, idx);
+              return toShow.map((scheme, idx) => {
+                const rendered = renderSvgWithDimensions(scheme.svgContent, initialData.fullWidth, initialData.height, initialData.doorWidth, 1, idx);
+                const displayLabel =
+                  scheme.label?.trim() ||
+                  (scheme.ratioType ? labelFallbacks[scheme.ratioType] : undefined) ||
+                  "Схема";
                 return (
                   <div
                     key={idx}
-                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                    className="cursor-pointer hover:opacity-80 transition-opacity flex flex-col items-center"
                     onClick={() => setSchemeModal(rendered)}
                   >
-                    <p className="text-[10px] font-semibold text-muted-foreground text-center mb-2">{scheme.label}</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground text-center mb-2">{displayLabel}</p>
                     <div
                       dangerouslySetInnerHTML={{ __html: rendered }}
                       style={{ height: h }}
@@ -487,11 +600,36 @@ export function ProposalPreview({
           </table>
         )}
 
+        {/* Custom services */}
+        {data.customServices && data.customServices.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between px-4 py-2 bg-brand-50/60">
+              <span className="text-[11px] font-bold text-brand-800 uppercase tracking-wider">Доп. услуги</span>
+              <span className="text-[11px] font-bold text-brand-700 tabular-nums">
+                {formatPrice(data.customServices.reduce((a, s) => a + s.price, 0))} у.е.
+              </span>
+            </div>
+            <table className="w-full text-sm">
+              <tbody>
+                {data.customServices.map((svc, i) => (
+                  <tr key={i} className="border-b border-border/10 hover:bg-brand-50/20">
+                    <td className="pl-4 pr-2 py-2 text-[13px]">
+                      {svc.name}
+                      {svc.description && <span className="text-muted-foreground ml-1 text-xs">({svc.description})</span>}
+                    </td>
+                    <td className="pl-3 pr-4 py-2 text-[13px] text-right font-semibold tabular-nums w-28">{formatPrice(svc.price)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {/* Total */}
         <div className="border-t px-4 py-3 flex items-center justify-between bg-muted/20">
           <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Итого:</span>
           <span className="text-lg font-bold text-brand-700 tabular-nums">
-            {formatPrice(data.totalPrice)} у.е.
+            {formatPrice(data.totalPrice + (data.customServices?.reduce((a, s) => a + s.price, 0) ?? 0))} у.е.
           </span>
         </div>
       </div>
@@ -515,6 +653,7 @@ export function ProposalPreview({
           shotlanType={data.shotlan}
           components={data.components}
           totalPrice={data.totalPrice}
+          customServices={data.customServices}
           variant={data.variant}
           schemeSvgs={schemeSvgUrls}
           schemeSizes={schemeSizes}

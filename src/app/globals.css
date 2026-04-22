@@ -7,9 +7,9 @@
   --saga-primary: #162832;
   --saga-primary-rgb: 22, 40, 50;
 
-  /* Brand accent: #BAA08F (base), brightened for UI */
-  --saga-accent: #D4B596;
-  --saga-accent-rgb: 212, 181, 150;
+  /* Brand accent: #BAA08F — warm taupe */
+  --saga-accent: #BAA08F;
+  --saga-accent-rgb: 186, 160, 143;
   --saga-accent-base: #BAA08F;
 
   /* Brand palette from primary */

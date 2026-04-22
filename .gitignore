@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# runtime data
+# dev.db коммитим — в нём готовая настроенная БД (системы/формулы/подсистемы).
+# prod.db НЕ коммитим — он будет создан на сервере.
+/prisma/dev.db-journal
+/prisma/prod.db
+/prisma/prod.db-journal
+/logs/

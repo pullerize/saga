@@ -41,9 +41,9 @@ export default function LoginPage() {
     const session = await getSession();
     const role = (session?.user as { role?: string })?.role;
 
-    if (role === "ADMIN" || role === "MANAGER") {
+    if (role === "ADMIN") {
       router.push("/admin");
-    } else if (role === "PARTNER") {
+    } else if (role === "PARTNER" || role === "MANAGER") {
       router.push("/partner");
     } else {
       router.push("/");

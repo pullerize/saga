@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/shared/Logo";
@@ -405,6 +405,14 @@ function ShotlanOptionForm({
 
 /* ─── Main page ─── */
 export default function CharacteristicsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground">Загрузка...</div>}>
+      <CharacteristicsPageInner />
+    </Suspense>
+  );
+}
+
+function CharacteristicsPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialTab = (searchParams.get("tab") as Tab) || "subsystem";

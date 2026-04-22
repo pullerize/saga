@@ -10,9 +10,16 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   const body = await req.json();
-  const { id, formula } = body;
+  const { id, formula, componentName } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const item = await prisma.systemFormula.update({ where: { id }, data: { formula } });
+  const data: { formula?: string; componentName?: string } = {};
+  if (formula !== undefined) data.formula = formula;
+  if (componentName !== undefined) {
+    const trimmed = String(componentName).trim();
+    if (!trimmed) return NextResponse.json({ error: "componentName cannot be empty" }, { status: 400 });
+    data.componentName = trimmed;
+  }
+  const item = await prisma.systemFormula.update({ where: { id }, data });
   return NextResponse.json(item);
 }
 

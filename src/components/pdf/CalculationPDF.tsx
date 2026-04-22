@@ -38,6 +38,7 @@ export interface CalculationPDFProps {
   components: Array<{ name: string; key: string; qty: number; price: number; sum: number; unit: string; group?: string }>;
   totalPrice: number;
   services?: Array<{ name: string; price: number }>;
+  customServices?: Array<{ name: string; description: string; price: number }>;
   variant?: {
     variantName: string;
     items: Array<{ title: string; description: string; iconUrl?: string | null }>;
@@ -53,8 +54,8 @@ export interface CalculationPDFProps {
 /* ── Brand palette ── */
 const BRAND_DARK = "#062D35";
 const BRAND = "#0A3C46";
-const GOLD = "#C59A3F";
-const GOLD_LIGHT = "#E8C97A";
+const GOLD = "#BAA08F";
+const GOLD_LIGHT = "#D4BFAE";
 const WHITE = "#FFFFFF";
 const IVORY = "#FAFAF8";
 const TEXT = "#1C1C1C";
@@ -233,7 +234,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
     fullWidth, height, doorWidth, openWidth,
     glassType, shotlanType,
     components, totalPrice,
-    services, variant, schemeSvgs, schemeSizes, glassImageUrl, railImageUrl, date,
+    services, customServices, variant, schemeSvgs, schemeSizes, glassImageUrl, railImageUrl, date,
   } = props;
 
   const formattedDate = formatDate(date);
@@ -307,34 +308,133 @@ export default function CalculationPDF(props: CalculationPDFProps) {
             </View>
           </View>
 
-          {/* Variant cards — premium style with larger icons */}
+          {/* Variant cards — premium style */}
           {variant && variant.items.length > 0 && (
             <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: 2, marginBottom: 14 }}>
-                {variant.variantName}
-              </Text>
+              {/* Section header with golden rule */}
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+                <View style={{ height: 1, width: 18, backgroundColor: GOLD, marginRight: 8 }} />
+                <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: 2.5 }}>
+                  {variant.variantName}
+                </Text>
+                <View style={{ height: 1, flex: 1, backgroundColor: BORDER, marginLeft: 8 }} />
+              </View>
+
               <View style={{ flexDirection: "row" }}>
-                {variant.items.map((item, i) => (
-                  <View key={i} style={{
-                    width: "31%", marginRight: i < variant.items.length - 1 ? "3.5%" : 0,
-                    backgroundColor: WHITE, borderRadius: 8, borderWidth: 0.5, borderColor: BORDER,
-                    padding: 14, alignItems: "center",
-                  }}>
-                    {item.iconUrl ? (
-                      <Image src={item.iconUrl} style={{ width: 48, height: 48, borderRadius: 6, marginBottom: 10 }} />
-                    ) : (
-                      <View style={{ width: 48, height: 48, borderRadius: 6, backgroundColor: IVORY, marginBottom: 10 }} />
-                    )}
-                    <Text style={{ fontSize: 9, fontFamily: "Roboto", fontWeight: 700, color: TEXT, textAlign: "center", marginBottom: 4 }}>
-                      {item.title}
-                    </Text>
-                    {item.description ? (
-                      <Text style={{ fontSize: 7.5, color: GRAY, textAlign: "center", lineHeight: 1.5 }}>
-                        {item.description}
+                {variant.items.map((item, i) => {
+                  const isLast = i === variant.items.length - 1;
+                  const num = String(i + 1).padStart(2, "0");
+                  return (
+                    <View
+                      key={i}
+                      style={{
+                        width: "31%",
+                        marginRight: isLast ? 0 : "3.5%",
+                        backgroundColor: WHITE,
+                        borderRadius: 6,
+                        borderWidth: 0.5,
+                        borderColor: BORDER,
+                        paddingTop: 18,
+                        paddingHorizontal: 14,
+                        paddingBottom: 16,
+                        alignItems: "center",
+                        position: "relative",
+                      }}
+                    >
+                      {/* Top gold accent line */}
+                      <View
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: "25%",
+                          width: "50%",
+                          height: 2,
+                          backgroundColor: GOLD,
+                        }}
+                      />
+
+                      {/* Card number badge */}
+                      <Text
+                        style={{
+                          position: "absolute",
+                          top: 6,
+                          right: 10,
+                          fontSize: 6.5,
+                          fontFamily: "Roboto",
+                          fontWeight: 700,
+                          color: GOLD,
+                          letterSpacing: 1.5,
+                        }}
+                      >
+                        {num}
                       </Text>
-                    ) : null}
-                  </View>
-                ))}
+
+                      {/* Icon with gold-tinted circular backdrop */}
+                      <View
+                        style={{
+                          width: 64,
+                          height: 64,
+                          borderRadius: 32,
+                          backgroundColor: IVORY,
+                          borderWidth: 0.5,
+                          borderColor: GOLD_LIGHT,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginBottom: 12,
+                        }}
+                      >
+                        {item.iconUrl ? (
+                          <Image
+                            src={item.iconUrl}
+                            style={{ width: 42, height: 42, borderRadius: 4 }}
+                          />
+                        ) : (
+                          <View style={{ width: 42, height: 42, borderRadius: 4, backgroundColor: BORDER }} />
+                        )}
+                      </View>
+
+                      {/* Title */}
+                      <Text
+                        style={{
+                          fontSize: 9.5,
+                          fontFamily: "Roboto",
+                          fontWeight: 700,
+                          color: TEXT,
+                          textAlign: "center",
+                          marginBottom: 6,
+                          letterSpacing: 0.2,
+                        }}
+                      >
+                        {item.title}
+                      </Text>
+
+                      {/* Gold divider under title */}
+                      <View
+                        style={{
+                          height: 1,
+                          width: 22,
+                          backgroundColor: GOLD,
+                          marginBottom: 8,
+                          opacity: 0.6,
+                        }}
+                      />
+
+                      {/* Description */}
+                      {item.description ? (
+                        <Text
+                          style={{
+                            fontSize: 7.5,
+                            color: TEXT_SEC,
+                            textAlign: "center",
+                            lineHeight: 1.55,
+                          }}
+                        >
+                          {item.description}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -355,32 +455,84 @@ export default function CalculationPDF(props: CalculationPDFProps) {
         <Page size="A4" style={s.schemePage}>
           <FixedHeader systemName={systemName} date={formattedDate} />
 
-          {/* Top half: schemes */}
-          <View style={{ flexDirection: "row", paddingHorizontal: 30, paddingTop: 10, justifyContent: "center", alignItems: "center", height: "50%" }}>
+          {/* Top 70%: up to 4 schemes in 2 rows
+              Row 1 (70% of schemes area): "Вид системы" + "Вид двери" + "Вид сбоку"
+              Row 2 (30% of schemes area): "Вид сверху" */}
+          <View wrap={false} style={{ paddingHorizontal: 30, paddingTop: 10, flex: 7, justifyContent: "center" }}>
             {(() => {
-              const maxW = 480, maxH = 340;
-              const s0 = schemeSizes?.[0];
-              const s1 = schemeSizes?.[1];
-              const r0 = s0?.w && s0?.h ? s0.w / s0.h : 0.87;
-              const r1 = s1?.w && s1?.h ? s1.w / s1.h : 0.35;
-              const gap = 18;
-              const h = Math.min((maxW - gap) / (r0 + r1), maxH);
-              const w0 = Math.round(h * r0);
-              const w1 = Math.round(h * r1);
+              const labels = ["Вид системы", "Вид двери", "Вид сбоку", "Вид сверху"];
+              const items = schemeSvgs.map((src, i) => ({
+                src,
+                size: schemeSizes?.[i],
+                label: labels[i] ?? "Схема",
+              }));
+              const row1 = [items[0], items[1], items[2]].filter((x) => x && !!x.src);
+              const row2 = [items[3]].filter((x) => x && !!x.src);
+              const hasRow1 = row1.length > 0;
+              const hasRow2 = row2.length > 0;
+              if (!hasRow1 && !hasRow2) return null;
+
+              const maxRowW = 500;
+              const colGap = 18;
+              const rowGap = 14;
+              // Total vertical budget for schemes area. Must fit inside ~70% of an A4
+              // page after subtracting paddings, labels above each row and the row gap —
+              // otherwise @react-pdf/renderer pushes the overflow onto blank extra pages.
+              const totalH = 440;
+              const row1H = hasRow1 && hasRow2 ? totalH * 0.7 - rowGap / 2
+                : hasRow1 ? totalH
+                : 0;
+              const row2H = hasRow2 && hasRow1 ? totalH * 0.3 - rowGap / 2
+                : hasRow2 ? totalH
+                : 0;
+
+              function renderRow(row: typeof items, maxH: number, key: string, fillWidth = false) {
+                const ratios = row.map((p) =>
+                  p.size?.w && p.size?.h ? p.size.w / p.size.h : 0.6
+                );
+                const sumR = ratios.reduce((a, b) => a + b, 0);
+                const totalGap = colGap * (row.length - 1);
+                const h = Math.min((maxRowW - totalGap) / sumR, maxH);
+
+                return (
+                  <View
+                    key={key}
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "center",
+                      alignItems: "flex-end",
+                    }}
+                  >
+                    {row.map((p, i) => {
+                      // When fillWidth is on (single-element row like "Top view") we reserve
+                      // the full row box but keep the image's aspect ratio via objectFit so
+                      // embedded labels don't get distorted.
+                      const baseW = Math.round(h * ratios[i]);
+                      const isFill = fillWidth && row.length === 1;
+                      const w = isFill ? Math.round(maxRowW) : baseW;
+                      const imgH = isFill ? Math.round(maxH) : Math.round(h);
+                      return (
+                        <View
+                          key={i}
+                          style={{ alignItems: "center", marginLeft: i === 0 ? 0 : colGap }}
+                        >
+                          <Text style={s.schemeLabel}>{p.label}</Text>
+                          <Image
+                            src={p.src}
+                            style={{ width: w, height: imgH, objectFit: isFill ? "contain" : undefined }}
+                          />
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              }
+
               return (
                 <>
-                  {schemeSvgs[0] ? (
-                    <View style={{ alignItems: "center" }}>
-                      <Text style={s.schemeLabel}>Вид системы</Text>
-                      <Image src={schemeSvgs[0]} style={{ width: w0, height: Math.round(h) }} />
-                    </View>
-                  ) : null}
-                  {schemeSvgs[1] ? (
-                    <View style={{ alignItems: "center", marginLeft: gap }}>
-                      <Text style={s.schemeLabel}>Вид двери</Text>
-                      <Image src={schemeSvgs[1]} style={{ width: w1, height: Math.round(h) }} />
-                    </View>
-                  ) : null}
+                  {hasRow1 && renderRow(row1, row1H, "r1")}
+                  {hasRow1 && hasRow2 && <View style={{ height: rowGap }} />}
+                  {hasRow2 && renderRow(row2, row2H, "r2", /* fillWidth */ true)}
                 </>
               );
             })()}
@@ -389,17 +541,17 @@ export default function CalculationPDF(props: CalculationPDFProps) {
           {/* Divider */}
           <View style={{ height: 0.5, backgroundColor: BORDER, marginHorizontal: 44 }} />
 
-          {/* Bottom half: glass + rail photos */}
-          <View style={{ flexDirection: "row", paddingHorizontal: 44, paddingTop: 14, flex: 1 }}>
+          {/* Bottom 30%: glass + rail photos */}
+          <View wrap={false} style={{ flexDirection: "row", paddingHorizontal: 44, paddingTop: 14, flex: 3 }}>
             {/* Glass */}
             <View style={{ width: "50%", paddingRight: 10 }}>
               <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 8 }}>
                 {"Стекло: " + glassType}
               </Text>
               {glassImageUrl ? (
-                <Image src={glassImageUrl} style={{ width: "100%", borderRadius: 6 }} />
+                <Image src={glassImageUrl} style={{ width: "100%", maxHeight: 140, objectFit: "contain", borderRadius: 6 }} />
               ) : (
-                <View style={{ width: "100%", height: 160, backgroundColor: IVORY, borderRadius: 6, borderWidth: 0.5, borderColor: BORDER, justifyContent: "center", alignItems: "center" }}>
+                <View style={{ width: "100%", height: 140, backgroundColor: IVORY, borderRadius: 6, borderWidth: 0.5, borderColor: BORDER, justifyContent: "center", alignItems: "center" }}>
                   <Text style={{ fontSize: 9, color: GRAY }}>Фото стекла</Text>
                 </View>
               )}
@@ -410,9 +562,9 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                 Рельсовая система
               </Text>
               {railImageUrl ? (
-                <Image src={railImageUrl} style={{ width: "100%", borderRadius: 6 }} />
+                <Image src={railImageUrl} style={{ width: "100%", maxHeight: 140, objectFit: "contain", borderRadius: 6 }} />
               ) : (
-                <View style={{ width: "100%", height: 160, backgroundColor: IVORY, borderRadius: 6, borderWidth: 0.5, borderColor: BORDER, justifyContent: "center", alignItems: "center" }}>
+                <View style={{ width: "100%", height: 140, backgroundColor: IVORY, borderRadius: 6, borderWidth: 0.5, borderColor: BORDER, justifyContent: "center", alignItems: "center" }}>
                   <Text style={{ fontSize: 9, color: GRAY }}>Фото рельсы</Text>
                 </View>
               )}
@@ -428,32 +580,61 @@ export default function CalculationPDF(props: CalculationPDFProps) {
         <FixedHeader systemName={systemName} date={formattedDate} />
 
         <View style={s.body}>
-          {/* Components table */}
-          <Text style={s.sectionTitle}>Комплектующие</Text>
-          <View style={s.table}>
-            <View style={s.tableHeader}>
-              <Text style={[s.tableHeaderCell, s.colNum]}>#</Text>
-              <Text style={[s.tableHeaderCell, s.colName]}>Наименование</Text>
-              <Text style={[s.tableHeaderCell, s.colQty]}>Кол.</Text>
-              <Text style={[s.tableHeaderCell, s.colUnit]}>Ед.</Text>
-              <Text style={[s.tableHeaderCell, s.colPrice]}>Цена</Text>
-              <Text style={[s.tableHeaderCell, s.colTotal]}>Сумма</Text>
-            </View>
-            {components.map((c, i) => (
-              <View key={c.key + i} style={[s.tableRow, i % 2 === 1 ? s.tableRowAlt : {}]}>
-                <Text style={[s.tableCell, s.colNum]}>{i + 1}</Text>
-                <Text style={[s.tableCell, s.colName]}>{c.name}</Text>
-                <Text style={[s.tableCell, s.colQty]}>{typeof c.qty === "number" && c.qty % 1 !== 0 ? c.qty.toFixed(2) : c.qty}</Text>
-                <Text style={[s.tableCell, s.colUnit]}>{c.unit}</Text>
-                <Text style={[s.tableCell, s.colPrice]}>{fmt(c.price)}</Text>
-                <Text style={[s.tableCellBold, s.colTotal]}>{fmt(c.sum)}</Text>
-              </View>
-            ))}
-          </View>
+          {/* Components table — keep title + table header + first few rows glued
+              together so the title never lands alone at the bottom of a page. */}
+          {(() => {
+            const stickyCount = 25;
+            const sticky = components.slice(0, stickyCount);
+            const rest = components.slice(stickyCount);
+            return (
+              <>
+                <View wrap={false}>
+                  <Text style={s.sectionTitle}>Комплектующие</Text>
+                  <View style={[s.table, { marginBottom: 0, borderBottomWidth: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }]}>
+                    <View style={s.tableHeader}>
+                      <Text style={[s.tableHeaderCell, s.colNum]}>#</Text>
+                      <Text style={[s.tableHeaderCell, s.colName]}>Наименование</Text>
+                      <Text style={[s.tableHeaderCell, s.colQty]}>Кол.</Text>
+                      <Text style={[s.tableHeaderCell, s.colUnit]}>Ед.</Text>
+                      <Text style={[s.tableHeaderCell, s.colPrice]}>Цена</Text>
+                      <Text style={[s.tableHeaderCell, s.colTotal]}>Сумма</Text>
+                    </View>
+                    {sticky.map((c, i) => (
+                      <View key={c.key + i} style={[s.tableRow, i % 2 === 1 ? s.tableRowAlt : {}]}>
+                        <Text style={[s.tableCell, s.colNum]}>{i + 1}</Text>
+                        <Text style={[s.tableCell, s.colName]}>{c.name}</Text>
+                        <Text style={[s.tableCell, s.colQty]}>{typeof c.qty === "number" && c.qty % 1 !== 0 ? c.qty.toFixed(2) : c.qty}</Text>
+                        <Text style={[s.tableCell, s.colUnit]}>{c.unit}</Text>
+                        <Text style={[s.tableCell, s.colPrice]}>{fmt(c.price)}</Text>
+                        <Text style={[s.tableCellBold, s.colTotal]}>{fmt(c.sum)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+                {rest.length > 0 && (
+                  <View style={[s.table, { marginTop: 0, borderTopWidth: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }]}>
+                    {rest.map((c, i) => {
+                      const realIdx = stickyCount + i;
+                      return (
+                        <View key={c.key + realIdx} style={[s.tableRow, realIdx % 2 === 1 ? s.tableRowAlt : {}]}>
+                          <Text style={[s.tableCell, s.colNum]}>{realIdx + 1}</Text>
+                          <Text style={[s.tableCell, s.colName]}>{c.name}</Text>
+                          <Text style={[s.tableCell, s.colQty]}>{typeof c.qty === "number" && c.qty % 1 !== 0 ? c.qty.toFixed(2) : c.qty}</Text>
+                          <Text style={[s.tableCell, s.colUnit]}>{c.unit}</Text>
+                          <Text style={[s.tableCell, s.colPrice]}>{fmt(c.price)}</Text>
+                          <Text style={[s.tableCellBold, s.colTotal]}>{fmt(c.sum)}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </>
+            );
+          })()}
 
           {/* Services */}
           {services && services.length > 0 ? (
-            <>
+            <View wrap={false}>
               <Text style={s.sectionTitle}>Дополнительные услуги</Text>
               <View style={[s.table, { marginBottom: 18 }]}>
                 <View style={s.tableHeader}>
@@ -471,21 +652,42 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                   <Text style={s.servicePrice}>{fmt(servicesTotal)} у.е.</Text>
                 </View>
               </View>
-            </>
+            </View>
           ) : null}
 
-          {/* Total — right after components */}
-          <View style={s.totalBlock}>
+          {/* Custom services */}
+          {customServices && customServices.length > 0 && (
+            <View wrap={false}>
+              <Text style={s.sectionTitle}>Дополнительные услуги</Text>
+              <View style={[s.table, { marginBottom: 18 }]}>
+                <View style={s.tableHeader}>
+                  <Text style={[s.tableHeaderCell, { flex: 1 }]}>Услуга</Text>
+                  <Text style={[s.tableHeaderCell, { width: 90, textAlign: "right" }]}>Стоимость</Text>
+                </View>
+                {customServices.map((svc, i) => (
+                  <View key={i} style={[s.servicesRow, i % 2 === 1 ? s.tableRowAlt : {}]}>
+                    <Text style={s.serviceName}>
+                      {svc.name}{svc.description ? ` (${svc.description})` : ""}
+                    </Text>
+                    <Text style={s.servicePrice}>{fmt(svc.price)} у.е.</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Total — right after components. Never split across pages. */}
+          <View wrap={false} style={s.totalBlock}>
             <Text style={s.totalNote}>Спецификации дверей указаны в предыдущих страницах.</Text>
             <View style={s.totalValueRow}>
               <Text style={s.totalNote}>Общая сумма составляет: </Text>
-              <Text style={s.totalValue}>{fmt(totalPrice)}</Text>
+              <Text style={s.totalValue}>{fmt(totalPrice + (customServices?.reduce((a, sv) => a + sv.price, 0) ?? 0))}</Text>
               <Text style={s.totalCurrency}> у.е.</Text>
             </View>
           </View>
 
-          {/* QR + Signatures — pushed to bottom */}
-          <View wrap={false} style={{ marginTop: "auto" }}>
+          {/* QR + Signatures — placed immediately after the total block */}
+          <View wrap={false} style={{ marginTop: 16 }}>
             <View style={s.qrRow}>
               <View style={[s.qrBlock, s.qrBlockLeft]}>
                 <View style={s.qrPlaceholder}><Text style={s.qrText}>QR</Text></View>

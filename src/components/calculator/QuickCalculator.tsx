@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Calculator, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn, formatPrice } from "@/lib/utils";
@@ -155,7 +155,24 @@ export function QuickCalculator() {
     setResult(res);
   }, [canCalculate, systemSlug, effectiveSubsystem, system, glass, shotlan, fullWidth, openWidth, height]);
 
-  const systemEntries = Object.entries(systemsData);
+  // Filter systems by what's actually present in DB
+  const [activeSlugs, setActiveSlugs] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    fetch("/api/systems")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Array<{ slug: string }>) =>
+        setActiveSlugs(new Set(rows.map((r) => r.slug)))
+      )
+      .catch(() => setActiveSlugs(new Set()));
+  }, []);
+
+  const systemEntries = useMemo(
+    () =>
+      Object.entries(systemsData).filter(
+        ([slug]) => !activeSlugs || activeSlugs.has(slug)
+      ),
+    [activeSlugs]
+  );
 
   return (
     <div className="space-y-6">

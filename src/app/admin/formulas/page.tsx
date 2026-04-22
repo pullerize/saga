@@ -186,8 +186,22 @@ export default function FormulasPage() {
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newFormula, setNewFormula] = useState("");
+  const [createError, setCreateError] = useState("");
+
+  // Names that are matched literally in the calculation engine — renaming may break logic
+  const PROTECTED_NAMES = new Set(["Ширина двери", "Стекло (м²)", "Сборка/установка"]);
+
+  function startEdit(f: Formula) {
+    setEditingId(f.id);
+    setEditValue(f.formula);
+    setEditName(f.componentName);
+  }
 
   const fetchFormulas = useCallback(async () => {
     try {
@@ -247,19 +261,22 @@ export default function FormulasPage() {
     return formulas.filter((f) => f.systemName === selectedSystem && f.subsystemName === firstSub).length;
   }, [formulas, selectedSystem, systems]);
 
-  async function handleSave(id: string, formula: string) {
+  async function handleSave(id: string, formula: string, componentName: string) {
     setSaving(true);
-    // Find the formula being edited to get componentName
     const edited = formulas.find((f) => f.id === id);
+    const trimmedName = componentName.trim();
+    const nameChanged = !!edited && trimmedName !== edited.componentName && !!trimmedName;
+    const finalName = trimmedName || edited?.componentName || "";
 
-    // Update this formula
+    // Update this formula (formula + name)
     await fetch("/api/system-formulas", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, formula }),
+      body: JSON.stringify({ id, formula, componentName: finalName }),
     });
 
-    // Also update all copies of this formula in other subsystems of the same system
+    // Also update all copies in other subsystems of the same system.
+    // For "Ширина двери" each subsystem has its own formula — don't propagate.
     if (edited && edited.componentName !== "Ширина двери") {
       const copies = formulas.filter(
         (f) => f.systemName === edited.systemName && f.componentName === edited.componentName && f.id !== id
@@ -269,7 +286,11 @@ export default function FormulasPage() {
           fetch("/api/system-formulas", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: c.id, formula }),
+            body: JSON.stringify({
+              id: c.id,
+              formula,
+              ...(nameChanged ? { componentName: finalName } : {}),
+            }),
           })
         )
       );
@@ -278,6 +299,56 @@ export default function FormulasPage() {
     setEditingId(null);
     await fetchFormulas();
     setSaving(false);
+  }
+
+  function openAdd() {
+    setNewName("");
+    setNewFormula("");
+    setCreateError("");
+    setAdding(true);
+    setEditingId(null);
+  }
+
+  function closeAdd() {
+    setAdding(false);
+    setCreateError("");
+  }
+
+  async function handleCreate() {
+    const name = newName.trim();
+    if (!name) { setCreateError("Укажите название компонента"); return; }
+    if (!selectedSystem) { setCreateError("Выберите систему"); return; }
+
+    const sys = systems.find((s) => s.name === selectedSystem);
+    if (!sys || sys.subsystems.length === 0) { setCreateError("У системы нет подсистем"); return; }
+
+    // Prevent creating duplicate by name inside the same system
+    const exists = formulas.some(
+      (f) => f.systemName === selectedSystem && f.componentName === name && f.componentName !== "Ширина двери"
+    );
+    if (exists) { setCreateError("Формула с таким названием уже существует в этой системе"); return; }
+
+    setSaving(true);
+    try {
+      await Promise.all(
+        sys.subsystems.map((subName) =>
+          fetch("/api/system-formulas", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemName: selectedSystem,
+              subsystemName: subName,
+              componentName: name,
+              formula: newFormula,
+            }),
+          })
+        )
+      );
+      await fetchFormulas();
+      closeAdd();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDelete(id: string) {
@@ -362,10 +433,59 @@ export default function FormulasPage() {
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                       {selectedSystem}
                     </p>
-                    <span className="text-[10px] text-muted-foreground">
-                      {search ? `${currentFormulas.length} из ${totalForSystem}` : `${totalForSystem} формул`}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-muted-foreground">
+                        {search ? `${currentFormulas.length} из ${totalForSystem}` : `${totalForSystem} формул`}
+                      </span>
+                      {!adding && (
+                        <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={openAdd}>
+                          <Plus className="w-3 h-3" />
+                          Добавить формулу
+                        </Button>
+                      )}
+                    </div>
                   </div>
+
+                  {adding && (
+                    <Card className="mb-4 border-brand-400 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-sm font-semibold">Новая формула для «{selectedSystem}»</p>
+                          <Button variant="ghost" size="sm" className="h-7 gap-1" onClick={closeAdd}>
+                            <X className="w-3.5 h-3.5" /> Отмена
+                          </Button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mb-3">
+                          Формула будет создана для всех {systems.find((s) => s.name === selectedSystem)?.subsystems.length ?? 0} подсистем этой системы.
+                        </p>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+                              Название компонента
+                            </label>
+                            <Input
+                              value={newName}
+                              onChange={(e) => setNewName(e.target.value)}
+                              placeholder="Рельсы верхние 47мм (6м)"
+                              className="text-sm font-semibold"
+                              autoFocus
+                            />
+                          </div>
+                          <FormulaInput
+                            value={newFormula}
+                            onChange={setNewFormula}
+                            paramDefs={paramDefs}
+                            saving={saving}
+                            onSave={handleCreate}
+                            onCancel={closeAdd}
+                          />
+                          {createError && (
+                            <p className="text-sm text-destructive font-medium">{createError}</p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   {/* Search */}
                   <div className="relative mb-4">
@@ -383,11 +503,18 @@ export default function FormulasPage() {
                   {!search && doorWidthFormulas.length > 0 && (
                     <div className="mb-4">
                       <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Ширина двери (по подсистемам)</p>
-                      <div className="rounded-xl border border-border overflow-hidden">
+                      <div className="rounded-xl border border-border">
                         {doorWidthFormulas.map((f, i) => (
                           <div
                             key={f.id}
-                            className={cn("flex items-center justify-between px-4 py-2.5 text-sm", i > 0 && "border-t border-border/30", i % 2 === 1 && "bg-muted/5")}
+                            className={cn(
+                              "flex items-center justify-between px-4 py-2.5 text-sm",
+                              i > 0 && "border-t border-border/30",
+                              i % 2 === 1 && "bg-muted/5",
+                              i === 0 && "rounded-t-xl",
+                              i === doorWidthFormulas.length - 1 && "rounded-b-xl",
+                              editingId === f.id && "relative z-10"
+                            )}
                           >
                             <span className="font-medium text-xs w-32 shrink-0">{f.subsystemName}</span>
                             {editingId === f.id ? (
@@ -397,16 +524,16 @@ export default function FormulasPage() {
                                   onChange={setEditValue}
                                   paramDefs={paramDefs}
                                   saving={saving}
-                                  onSave={() => handleSave(f.id, editValue)}
+                                  onSave={() => handleSave(f.id, editValue, f.componentName)}
                                   onCancel={() => setEditingId(null)}
                                 />
                               </div>
                             ) : (
                               <>
-                                <p className="flex-1 font-mono text-xs text-brand-700 bg-brand-50/50 rounded px-2 py-1 mx-3 break-all cursor-pointer" onClick={() => { setEditingId(f.id); setEditValue(f.formula); }}>
+                                <p className="flex-1 font-mono text-xs text-brand-700 bg-brand-50/50 rounded px-2 py-1 mx-3 break-all cursor-pointer" onClick={() => startEdit(f)}>
                                   {f.formula}
                                 </p>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-brand-600 shrink-0" onClick={() => { setEditingId(f.id); setEditValue(f.formula); }}>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-brand-600 shrink-0" onClick={() => startEdit(f)}>
                                   <Pencil className="w-3 h-3" />
                                 </Button>
                               </>
@@ -426,26 +553,41 @@ export default function FormulasPage() {
                           <CardContent className="p-4">
                             {editingId === f.id ? (
                               <div className="space-y-3">
-                                <p className="text-sm font-semibold">{f.componentName}</p>
+                                <div>
+                                  <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+                                    Название компонента
+                                  </label>
+                                  <Input
+                                    value={editName}
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    placeholder="Название компонента"
+                                    className="text-sm font-semibold"
+                                  />
+                                  {PROTECTED_NAMES.has(f.componentName) && editName !== f.componentName && (
+                                    <p className="text-[11px] text-amber-600 mt-1.5">
+                                      ⚠ «{f.componentName}» используется в логике расчёта — переименование может сломать калькулятор.
+                                    </p>
+                                  )}
+                                </div>
                                 <FormulaInput
                                   value={editValue}
                                   onChange={setEditValue}
                                   paramDefs={paramDefs}
                                   saving={saving}
-                                  onSave={() => handleSave(f.id, editValue)}
+                                  onSave={() => handleSave(f.id, editValue, editName)}
                                   onCancel={() => setEditingId(null)}
                                 />
                               </div>
                             ) : (
                               <div className="flex items-start justify-between gap-3">
-                                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setEditingId(f.id); setEditValue(f.formula); }}>
+                                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => startEdit(f)}>
                                   <p className="text-sm font-semibold mb-1.5">{f.componentName}</p>
                                   <p className="font-mono text-xs text-brand-700 bg-brand-50/50 rounded-md px-3 py-2 leading-relaxed break-all">
                                     {f.formula}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0 pt-0.5">
-                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-brand-600" onClick={() => { setEditingId(f.id); setEditValue(f.formula); }}>
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-brand-600" onClick={() => startEdit(f)}>
                                     <Pencil className="w-3.5 h-3.5" />
                                   </Button>
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(f.id)}>

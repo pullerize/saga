@@ -17,15 +17,28 @@ export async function PUT(req: Request) {
   return NextResponse.json(item);
 }
 
+const ALLOWED_CATEGORIES = ["component", "glass", "service", "shotlan"];
+
 export async function POST(req: Request) {
   const body = await req.json();
+  const key = String(body.key || "").trim();
+  const name = String(body.name || "").trim();
+  if (!key || !name) {
+    return NextResponse.json({ error: "key и name обязательны" }, { status: 400 });
+  }
+  const category = ALLOWED_CATEGORIES.includes(body.category) ? body.category : "component";
+  const existing = await prisma.component.findUnique({ where: { key } });
+  if (existing) {
+    return NextResponse.json({ error: "Компонент с таким ключом уже существует" }, { status: 409 });
+  }
   const count = await prisma.component.count();
   const item = await prisma.component.create({
     data: {
-      key: body.key,
-      name: body.name,
-      unit: body.unit ?? "шт",
-      defaultPrice: body.defaultPrice ?? 0,
+      key,
+      name,
+      unit: body.unit?.trim() || "шт",
+      category,
+      defaultPrice: Number(body.defaultPrice) || 0,
       sortOrder: count,
     },
   });

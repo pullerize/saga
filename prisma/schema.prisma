@@ -8,7 +8,7 @@ datasource db {
 }
 
 // ── Authentication & Users ──
-// Roles: ADMIN, MANAGER, PARTNER
+// Roles: ADMIN (full control), MANAGER (own staff), PARTNER (external)
 // Statuses: ACTIVE, BLOCKED, PENDING
 
 model User {
@@ -262,8 +262,14 @@ model ClientCard {
   totalPrice Float
   components Json // Array<{name, key, qty, price, sum, unit}>
 
+  createdByUserId String?
+  companyName     String  @default("Saga Group")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([companyName])
+  @@index([createdByUserId])
 }
 
 // ── Calculations ──
