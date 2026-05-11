@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
-import { Logo } from "@/components/shared/Logo";
+import { CompanyBrand } from "@/components/shared/CompanyBrand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +18,8 @@ import {
   Layers,
   Image as ImageIcon,
   GripVertical,
+  HelpCircle,
+  ChevronDown,
 } from "lucide-react";
 
 interface VariantItem {
@@ -166,6 +168,200 @@ function ItemRow({
   );
 }
 
+/* ─── Подсказка по подготовке SVG-схем ─── */
+function SchemesHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-brand-200 bg-brand-50/40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-left cursor-pointer"
+      >
+        <span className="flex items-center gap-2 text-xs font-semibold text-brand-700">
+          <HelpCircle className="w-4 h-4" />
+          Как правильно подготовить SVG-схемы?
+        </span>
+        <ChevronDown
+          className={cn("w-4 h-4 text-brand-700 transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-1 text-[12px] leading-relaxed text-foreground/80 space-y-3">
+          <p>
+            На карточке клиента в превью КП и в PDF используется до трёх схем:
+            <span className="font-semibold"> «Вид системы»</span>,
+            <span className="font-semibold"> «Вид двери»</span> и
+            <span className="font-semibold"> «Вид сверху»</span>. Их рисует дизайнер
+            в любом векторном редакторе (Figma, Illustrator) и сохраняет как .svg.
+            Чтобы система автоматически подставила нужные размеры, перерисовала
+            двери под фактическую ширину/высоту проёма и не сломала ручки —
+            нужно соблюсти несколько простых правил.
+          </p>
+
+          <div>
+            <p className="font-semibold text-brand-700 mb-1">1. Размер чертежа = размер двери в миллиметрах</p>
+            <p>
+              В редакторе ставьте холст (artboard) ровно по габаритам типичного
+              проёма системы. Например для каскада 3+0 — 3000 × 2000 мм.
+              Все остальные элементы (стекло, рамки, штанга) рисуйте в этом же
+              масштабе. Это позволяет системе автоматически менять пропорции
+              схемы под реальные размеры из калькуляции.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-brand-700 mb-1">2. Стекло двери — обязательно цвет #D5FFFF</p>
+            <p>
+              Залейте каждую дверь (стеклянное полотно) этим конкретным
+              светло-голубым цветом. По нему движок понимает «вот это —
+              стекло двери», находит его центр и привязывает к нему ручки.
+              Если использовать другой оттенок — ручки лягут не туда.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-brand-700 mb-1">3. Слой «system» — всё, что должно тянуться</p>
+            <p>
+              В Figma/Illustrator сгруппируйте всё, что меняется при смене
+              размеров проёма (двери, рамки, стёкла, штангу, профили), в одну
+              группу и назовите её именно <code className="text-[11px] bg-muted px-1 py-0.5 rounded">system</code>{" "}
+              (латиницей, без пробелов). При экспорте в SVG эта группа станет
+              <code className="text-[11px] bg-muted px-1 py-0.5 rounded">{`<g id="system">`}</code> — система найдёт
+              её и будет масштабировать только её содержимое, не трогая
+              фон и подписи.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-brand-700 mb-1">4. Слой «handles» — для ручек</p>
+            <p>
+              Ручки сгруппируйте отдельно и назовите группу{" "}
+              <code className="text-[11px] bg-muted px-1 py-0.5 rounded">handles</code>. Эта группа должна лежать
+              <span className="font-semibold"> рядом</span> со слоем system, а не
+              внутри него — иначе ручки будут сжиматься/растягиваться вместе с
+              дверьми, и при больших проёмах станут уродливыми. Когда они в
+              отдельной группе — система автоматически переносит их к крайним
+              дверям, сохраняя их физический размер.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-brand-700 mb-1">5. Размеры в подписях — динамические</p>
+            <p>
+              Для <span className="font-semibold">вида системы</span> и{" "}
+              <span className="font-semibold">вида двери</span> подписи общей
+              ширины и высоты движок рисует поверх схемы сам — поэтому в SVG
+              их вписывать не нужно, иначе будет дубль.
+            </p>
+            <p className="mt-2">
+              Если в схеме всё же есть свои размерные полоски с цифрами
+              (например в виде сверху между верхней / средней / нижней
+              частью), линии и текст рисует дизайнер прямо в SVG. Чтобы числа
+              не были «жёстко зашиты» под один размер, а менялись под
+              фактический расчёт, в местах с числом напишите вместо самой
+              цифры один из плейсхолдеров:
+            </p>
+            <ul className="list-disc pl-5 mt-1 space-y-0.5">
+              <li>
+                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"{{WIDTH}}"}</code> — общая ширина
+                проёма (мм). В виде двери подставляется ширина одной двери.
+              </li>
+              <li>
+                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"{{DOOR_WIDTH}}"}</code> — ширина
+                одной двери (мм).
+              </li>
+              <li>
+                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"{{GAP_MINUS_DOOR}}"}</code> —
+                свободный проём, когда все двери сдвинуты в один край
+                (= ширина проёма − ширина двери).
+              </li>
+              <li>
+                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"{{HEIGHT}}"}</code> — высота
+                проёма (мм).
+              </li>
+            </ul>
+            <p className="mt-1">
+              Например текстовый элемент{" "}
+              <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"<text>{{DOOR_WIDTH}} мм</text>"}</code>{" "}
+              превратится при отрисовке в «1010 мм», если по расчёту дверь
+              получилась 1010 мм.
+            </p>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Примечание: для подсистемы «каскад 3+0» вид сверху рисуется
+              автоматически — там вообще не нужен SVG-файл. Если вы видите в
+              превью КП размерные полоски, которые вы не загружали — скорее
+              всего это процедурная схема из встроенного движка, а не ваш SVG.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-brand-700 mb-1">6. Белая подложка</p>
+            <p>
+              Под все элементы положите большой белый прямоугольник. Иначе
+              в зоне, где система дорисовывает размерные подписи, фон будет
+              прозрачный и подсветится цветом страницы (часто серый).
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold text-brand-700 mb-1">7. Тип каждой схемы</p>
+            <p>
+              Для каждой загруженной схемы выберите её тип:
+            </p>
+            <ul className="list-disc pl-5 mt-1 space-y-0.5">
+              <li>
+                <span className="font-semibold">«Вид системы»</span> (system) —
+                целая система во всю ширину проёма. Размер холста в редакторе
+                задаётся как W × H проёма. <span className="text-muted-foreground">Здесь
+                обязательно нужны слои <code className="text-[10px] bg-muted px-1 py-0.5 rounded">system</code> и{" "}
+                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">handles</code>.</span>
+              </li>
+              <li>
+                <span className="font-semibold">«Вид двери»</span> (door) — одна
+                дверь. Размер холста — ширина одной двери × высота проёма.{" "}
+                <span className="text-muted-foreground">Здесь тоже нужны слои{" "}
+                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">system</code> и{" "}
+                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">handles</code>{" "}
+                (одна ручка).</span>
+              </li>
+              <li>
+                <span className="font-semibold">«Вид сверху»</span> (top) —
+                разрез сверху, как доводчик и двери выглядят с потолка. Обычно
+                широкое и невысокое изображение (соотношение 4:1 или 6:1).{" "}
+                <span className="text-muted-foreground">Никаких специальных
+                слоёв не требует — внутренние секции (верхняя/средняя/нижняя)
+                рисуются просто как часть картинки.</span>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <p className="font-semibold text-brand-700 mb-1">8. Кратко про названия слоёв</p>
+            <p>
+              Системе важны только два названия слоёв:{" "}
+              <code className="text-[10px] bg-muted px-1 py-0.5 rounded">system</code> (всё, что
+              тянется под размер) и{" "}
+              <code className="text-[10px] bg-muted px-1 py-0.5 rounded">handles</code> (ручки,
+              которые сохраняют физический размер). Все остальные слои/группы
+              можно называть как угодно или вообще не группировать —
+              «верхняя/средняя/нижняя часть» в виде сверху, разные подгруппы
+              профилей, фон, тени и т.д. движок не различает и просто
+              отрисовывает как картинку.
+            </p>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground pt-2 border-t border-border">
+            Подробная техническая инструкция со всеми тонкостями — в файле{" "}
+            <code className="text-[10px] bg-muted px-1 py-0.5 rounded">docs/SVG_SCHEMES.md</code>{" "}
+            проекта.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Variant editor ─── */
 /* ─── Scheme editor row ─── */
 function SchemeRow({
@@ -202,12 +398,8 @@ function SchemeRow({
           onChange={(e) => onChange({ ...scheme, ratioType: e.target.value || null })}
           className="h-8 text-xs rounded-md border border-border bg-background px-2 w-44"
         >
-          <optgroup label="Система (один из)">
-            <option value="wide">Широкий проём</option>
-            <option value="square">Квадратный</option>
-            <option value="tall">Высокий проём</option>
-          </optgroup>
-          <optgroup label="Всегда отображается">
+          <optgroup label="Виды для PDF">
+            <option value="system">Вид системы (адаптивный)</option>
             <option value="door">Дверь</option>
             <option value="side">Вид сбоку</option>
             <option value="top">Вид сверху</option>
@@ -327,16 +519,20 @@ function VariantEditor({
         {/* Rail image */}
         <div className="mb-4">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Фото рельсы</p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-start gap-3">
             <input ref={railFileRef} type="file" accept="image/*" className="hidden" onChange={handleRailUpload} />
             {railImageUrl ? (
-              <img src={railImageUrl} alt="Рельса" className="w-20 h-20 rounded-lg object-cover border border-border" />
+              <img
+                src={railImageUrl}
+                alt="Рельса"
+                className="w-28 h-20 rounded-lg object-contain bg-muted/40 border border-border"
+              />
             ) : (
-              <div className="w-20 h-20 rounded-lg bg-muted flex items-center justify-center border border-dashed border-border">
+              <div className="w-28 h-20 rounded-lg bg-muted flex items-center justify-center border border-dashed border-border">
                 <ImageIcon className="w-5 h-5 text-muted-foreground" />
               </div>
             )}
-            <div className="space-y-1">
+            <div className="space-y-1.5 flex-1">
               <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => railFileRef.current?.click()} disabled={uploadingRail}>
                 {uploadingRail ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImageIcon className="w-3 h-3" />}
                 {railImageUrl ? "Заменить" : "Загрузить"}
@@ -344,6 +540,11 @@ function VariantEditor({
               {railImageUrl && (
                 <button onClick={() => setRailImageUrl(null)} className="text-[9px] text-muted-foreground hover:text-destructive cursor-pointer block">Удалить</button>
               )}
+              <p className="text-[10px] text-muted-foreground leading-snug max-w-[260px]">
+                Рекомендуемый формат: <span className="font-semibold">3:2</span> (например 600×400 px), фон
+                — прозрачный или белый. В PDF картинка вписывается без обрезки, поэтому если стороны другие —
+                по краям появятся поля. Поддерживаются PNG, JPG, WebP, SVG.
+              </p>
             </div>
           </div>
         </div>
@@ -375,6 +576,9 @@ function VariantEditor({
             <Button variant="outline" size="sm" onClick={addScheme} className="h-7 gap-1 text-xs">
               <Plus className="w-3 h-3" /> Добавить схему
             </Button>
+          </div>
+          <div className="mb-3">
+            <SchemesHelp />
           </div>
           <div className="space-y-2">
             {schemes.map((scheme, i) => (
@@ -486,7 +690,7 @@ export default function VariantsPage() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-border/40 flex items-center justify-between px-6">
         <div className="flex items-center gap-4">
-          <Logo size="sm" />
+          <CompanyBrand size="sm" />
           <span className="text-sm font-semibold text-brand-600">Админ-панель</span>
         </div>
         <Link href="/admin">

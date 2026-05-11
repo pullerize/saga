@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Logo } from "@/components/shared/Logo";
+import { CompanyBrand } from "@/components/shared/CompanyBrand";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ClientCardForm, type KnownClient, type ClientCardData } from "@/components/admin/ClientCardForm";
@@ -113,6 +113,35 @@ export default function AdminCalculatorPage() {
     setView("list");
   }
 
+  /**
+   * «Тихое» автосохранение (срабатывает по нажатию на «Скачать PDF»):
+   * без navigation — пользователь остаётся на странице результата, чтобы
+   * иметь возможность снова сгенерировать PDF.
+   * При первом сохранении карточки запоминаем editingId, чтобы повторные
+   * автосохранения шли через PUT (не плодили дубликаты).
+   */
+  async function handleSilentSave(card: ClientCardData) {
+    if (editingId) {
+      const res = await fetch("/api/client-cards", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingId, ...card }),
+      });
+      if (res.ok) await fetchCards();
+    } else {
+      const res = await fetch("/api/client-cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(card),
+      });
+      if (res.ok) {
+        const created = await res.json().catch(() => null);
+        if (created?.id) setEditingId(created.id);
+        await fetchCards();
+      }
+    }
+  }
+
   async function handleDelete(id: string) {
     setDeletingId(id);
     const res = await fetch(`/api/client-cards?id=${id}`, { method: "DELETE" });
@@ -131,7 +160,7 @@ export default function AdminCalculatorPage() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-border/40 flex items-center justify-between px-6">
         <div className="flex items-center gap-4">
-          <Logo size="sm" />
+          <CompanyBrand size="sm" />
           <span className="text-sm font-semibold text-brand-600">Админ-панель</span>
         </div>
         <Link href="/admin">
@@ -351,6 +380,7 @@ export default function AdminCalculatorPage() {
               knownClients={uniqueClients}
               initialData={view === "edit" ? editingCard ?? undefined : undefined}
               onCreated={view === "edit" ? handleCardUpdated : handleCardCreated}
+              onSilentSave={handleSilentSave}
               onCancel={() => { setEditingId(null); setView("list"); }}
             />
           </>

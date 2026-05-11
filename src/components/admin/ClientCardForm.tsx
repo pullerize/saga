@@ -10,6 +10,13 @@ import { systemsData } from "@/lib/calculations/systemsData";
 import { type CalcComponent } from "@/lib/calculations/engine";
 import { calculateWithDB } from "@/lib/calculations/calculateWithDB";
 import { glassOptions, shotlanOptions, hideWithRiffled } from "@/lib/calculations/constants";
+import {
+  systemMedia,
+  subsystemPosters,
+  subsystemVideos,
+  glassImages,
+  shotlanImages,
+} from "@/lib/calculations/media";
 import PDFDownloadBtn from "@/components/pdf/PDFDownloadBtn";
 import { ProposalPreview } from "@/components/admin/ProposalPreview";
 import {
@@ -33,17 +40,108 @@ export interface KnownClient {
 
 /* ─── Demo data (replace with DB fetch when API is ready) ─── */
 
-const managers = [
-  { id: "1", name: "Алексей Иванов", phone: "+998 90 123-45-67" },
-  { id: "2", name: "Дмитрий Петров", phone: "+998 91 234-56-78" },
-  { id: "3", name: "Сергей Сидоров", phone: "+998 93 345-67-89" },
-];
+interface Manager {
+  id: string;
+  name: string;
+  phone: string | null;
+  role?: string;
+}
 
 const branches = [
   "г. Ташкент, ул. Навои 100",
   "г. Ташкент, ул. Амира Темура 55",
   "г. Самарканд, ул. Регистан 12",
 ];
+
+/* Тип элемента для VisualChipGroup. */
+type VisualChipOption = {
+  value: string;
+  label: string;
+  imageUrl?: string | null;
+  /** Полноразмерный медиа-ресурс, открываемый по двойному клику. */
+  fullMedia?: { kind: "image" | "video"; url: string } | null;
+};
+
+/* ─── Visual chip selector — кнопка с превью + подписью ─── */
+function VisualChipGroup({
+  options,
+  value,
+  onChange,
+  onPreview,
+  thumbClassName = "w-20 h-20",
+  thumbObjectFit = "cover",
+}: {
+  options: VisualChipOption[];
+  value: string | null;
+  onChange: (v: string) => void;
+  /** Открыть полноэкранное превью, начиная с указанного значения. */
+  onPreview?: (startValue: string) => void;
+  thumbClassName?: string;
+  thumbObjectFit?: "cover" | "contain";
+}) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            onDoubleClick={() => {
+              if (opt.fullMedia && onPreview) {
+                onPreview(opt.value);
+              }
+            }}
+            title={opt.fullMedia ? "Двойной клик — открыть превью" : undefined}
+            className={cn(
+              "group relative flex flex-col items-center rounded-xl border-2 overflow-hidden transition-all cursor-pointer bg-card w-36 select-none",
+              active
+                ? "border-brand-700 ring-2 ring-brand-500/20 shadow-md"
+                : "border-border hover:border-brand-400 hover:shadow-sm"
+            )}
+          >
+            <div
+              className={cn(
+                "overflow-hidden bg-muted/30 flex items-center justify-center",
+                thumbClassName
+              )}
+            >
+              {opt.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={opt.imageUrl}
+                  alt={opt.label}
+                  className={cn(
+                    "w-full h-full transition-transform",
+                    thumbObjectFit === "cover" ? "object-cover" : "object-contain p-1.5",
+                    !active && "group-hover:scale-105"
+                  )}
+                />
+              ) : (
+                <span className="text-[10px] text-muted-foreground">нет превью</span>
+              )}
+            </div>
+            <div
+              className={cn(
+                "w-full px-2.5 py-1.5 text-[11px] font-semibold leading-tight text-left break-words",
+                active ? "bg-brand-700 text-white" : "bg-card text-foreground"
+              )}
+            >
+              {opt.label}
+            </div>
+            {active && (
+              <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-brand-700 flex items-center justify-center text-white shadow-sm">
+                <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 6L5 8.5L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 /* ─── Chip selector ─── */
 function ChipGroup({
@@ -75,7 +173,7 @@ function ChipGroup({
   );
 }
 
-/* ─── Number input ─── */
+/* ─── Number input WITH slider ─── */
 function NumInput({
   label,
   value,
@@ -91,10 +189,15 @@ function NumInput({
   max: number;
   suffix?: string;
 }) {
+  const sliderVal = value > 0 ? value : min;
+  const progress = ((sliderVal - min) / Math.max(1, max - min)) * 100;
   return (
-    <div className="flex-1 min-w-[140px]">
-      <label className="text-[11px] text-muted-foreground block mb-1">
-        {label} ({min}–{max} {suffix})
+    <div className="flex-1 min-w-[200px] space-y-2">
+      <label className="text-xs font-medium text-muted-foreground flex items-center justify-between">
+        <span>{label}</span>
+        <span className="text-[10px] text-muted-foreground/70 tabular-nums">
+          {min}–{max} {suffix}
+        </span>
       </label>
       <input
         type="number"
@@ -105,9 +208,27 @@ function NumInput({
         className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
         placeholder={String(min)}
       />
+      <div className="relative group/slider pt-1">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={10}
+          value={sliderVal}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="dimension-slider w-full"
+        />
+        <div className="pointer-events-none absolute top-1/2 left-0 right-0 -translate-y-1/2 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-brand-400 to-brand-600"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
+
 
 /* ─── Section wrapper ─── */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -224,6 +345,8 @@ export interface ClientCardData {
   clientPhone: string;
   clientAddress: string;
   managerName: string;
+  /** Телефон менеджера на момент создания карточки. */
+  managerPhone?: string | null;
   branch: string;
   systemSlug?: string;
   systemName: string;
@@ -237,22 +360,37 @@ export interface ClientCardData {
   totalPrice: number;
   components: CalcComponent[];
   customServices?: Array<{ name: string; description: string; price: number }>;
+  /** Компания, к которой привязана карточка (заполняется бэкэндом по сессии создателя). */
+  companyName?: string | null;
 }
 
 interface ClientCardFormProps {
   knownClients?: KnownClient[];
   initialData?: ClientCardData;
   onCreated?: (card: ClientCardData) => void;
+  /**
+   * «Тихое» сохранение карточки без навигации (отличается от onCreated тем,
+   * что не закрывает форму). Используется при автосохранении на момент
+   * скачивания PDF.
+   */
+  onSilentSave?: (card: ClientCardData) => Promise<void> | void;
   onCancel?: () => void;
 }
 
-export function ClientCardForm({ knownClients = [], initialData, onCreated, onCancel }: ClientCardFormProps) {
+export function ClientCardForm({ knownClients = [], initialData, onCreated, onSilentSave, onCancel }: ClientCardFormProps) {
   const isEditing = !!initialData;
 
-  // Resolve initial manager/system from initialData
-  const initManagerId = initialData
-    ? managers.find((m) => m.name === initialData.managerName)?.id ?? null
-    : null;
+  // Менеджеры: динамический список пользователей, привязанных к компании текущего
+  // залогиненного юзера (через /api/me/colleagues). До завершения загрузки список
+  // пуст; managerId сопоставляется с initialData.managerName ниже, в useEffect.
+  const [managers, setManagers] = useState<Manager[]>([]);
+  useEffect(() => {
+    fetch("/api/me/colleagues")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Manager[]) => setManagers(rows))
+      .catch(() => setManagers([]));
+  }, []);
+
   const initSystemSlug = initialData
     ? initialData.systemSlug
       ?? Object.entries(systemsData).find(([, s]) => s.name === initialData.systemName)?.[0]
@@ -273,9 +411,25 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
 
   const clientPhone = formatPhone(phoneDigits);
 
-  // Manager info
-  const [managerId, setManagerId] = useState<string | null>(initManagerId);
+  // Manager info: managerId синхронизируется с managers (фетч) + initialData.
+  const [managerId, setManagerId] = useState<string | null>(null);
   const [branchAddress, setBranchAddress] = useState<string | null>(initialData?.branch ?? null);
+
+  // Сопоставление managerId после загрузки списка менеджеров.
+  // Если в initialData указано имя — пытаемся подобрать пользователя из компании
+  // по совпадению имени. Если такого нет — оставляем managerId = null
+  // (admin/partner выберет вручную из текущего списка).
+  useEffect(() => {
+    if (managers.length === 0) return;
+    setManagerId((prev) => {
+      if (prev && managers.some((m) => m.id === prev)) return prev;
+      if (initialData?.managerName) {
+        const match = managers.find((m) => m.name === initialData.managerName);
+        if (match) return match.id;
+      }
+      return null;
+    });
+  }, [managers, initialData?.managerName]);
 
   // Configuration
   const [systemSlug, setSystemSlug] = useState<string | null>(initSystemSlug);
@@ -285,6 +439,30 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
   const [fullWidth, setFullWidth] = useState(initialData?.fullWidth ?? 0);
   const [openWidth, setOpenWidth] = useState(initialData?.openWidth ?? 0);
   const [height, setHeight] = useState(initialData?.height ?? 0);
+
+  // Полноэкранный просмотр медиа: открывается двойным кликом по чипу/карточке.
+  // Содержит список вариантов своей секции и текущий индекс — кнопки prev/next
+  // переключаются только в пределах одной секции.
+  type PreviewItem = {
+    value: string;
+    label: string;
+    media: { kind: "image" | "video"; url: string };
+  };
+  type PreviewSection = "system" | "subsystem" | "glass" | "shotlan";
+  const [mediaPreview, setMediaPreview] = useState<
+    | { section: PreviewSection; items: PreviewItem[]; index: number }
+    | null
+  >(null);
+
+  // Хелпер — открыть превью с указанной секцией и стартовым value.
+  const openPreview = useCallback(
+    (section: PreviewSection, items: PreviewItem[], startValue: string) => {
+      const idx = items.findIndex((it) => it.value === startValue);
+      if (idx < 0) return;
+      setMediaPreview({ section, items, index: idx });
+    },
+    [],
+  );
 
   // Custom services
   interface CustomService { name: string; description: string; price: number }
@@ -547,6 +725,12 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
 
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Выберите менеджера</label>
+                {managers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-3">
+                    В вашей компании пока нет активных пользователей. Добавьте их в разделе{" "}
+                    <Link href="/admin/users" className="underline hover:text-brand-600">«Пользователи»</Link>.
+                  </p>
+                ) : (
                 <div className="grid gap-2">
                   {managers.map((m) => (
                     <button
@@ -573,6 +757,7 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
                     </button>
                   ))}
                 </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -644,38 +829,80 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
 
           {/* System selection */}
           <Section title="Система">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-              {systemEntries.map(([slug, sys]) => (
-                <button
-                  key={slug}
-                  onClick={() => {
-                    if (systemSlug === slug) return;
-                    setSystemSlug(slug);
-                    setSubsystemId(null);
-                    setGlass(null);
-                    setShotlan("Без шотланок");
-                    setResult(null);
-                    setFullWidth(0);
-                    setOpenWidth(0);
-                    setHeight(0);
-                  }}
-                  className={cn(
-                    "px-3 py-2 rounded-lg text-sm font-medium border transition-all text-left cursor-pointer",
-                    systemSlug === slug
-                      ? "bg-brand-700 text-white border-brand-700 shadow-sm"
-                      : "bg-card border-border hover:border-brand-300 hover:bg-brand-50/50"
-                  )}
-                >
-                  {sys.name}
-                </button>
-              ))}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {systemEntries.map(([slug, sys]) => {
+                const media = systemMedia[slug];
+                const poster = media?.poster;
+                const video = media?.video;
+                const active = systemSlug === slug;
+                return (
+                  <button
+                    key={slug}
+                    onClick={() => {
+                      if (systemSlug === slug) return;
+                      setSystemSlug(slug);
+                      setSubsystemId(null);
+                      setGlass(null);
+                      setShotlan("Без шотланок");
+                      setResult(null);
+                      setFullWidth(0);
+                      setOpenWidth(0);
+                      setHeight(0);
+                    }}
+                    onDoubleClick={() => {
+                      const items: PreviewItem[] = systemEntries
+                        .map(([s, sd]) => {
+                          const m = systemMedia[s];
+                          const media = m?.video
+                            ? { kind: "video" as const, url: m.video }
+                            : m?.poster
+                            ? { kind: "image" as const, url: m.poster }
+                            : null;
+                          return media ? { value: s, label: sd.name, media } : null;
+                        })
+                        .filter((x): x is PreviewItem => !!x);
+                      if (items.length > 0) openPreview("system", items, slug);
+                    }}
+                    title={video || poster ? "Двойной клик — открыть превью" : undefined}
+                    className={cn(
+                      "group flex flex-col rounded-lg border overflow-hidden transition-all cursor-pointer text-left select-none",
+                      active
+                        ? "border-brand-700 ring-2 ring-brand-500/30 shadow-sm"
+                        : "border-border hover:border-brand-300 hover:shadow-sm"
+                    )}
+                  >
+                    <div className="aspect-[4/3] bg-muted/40 overflow-hidden border-b border-border/50">
+                      {poster ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={poster}
+                          alt={sys.name}
+                          className="w-full h-full object-cover transition-transform group-hover:scale-[1.03]"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[10px] text-muted-foreground">
+                          нет превью
+                        </div>
+                      )}
+                    </div>
+                    <div
+                      className={cn(
+                        "px-2.5 py-2 text-sm font-medium text-left leading-tight break-words",
+                        active ? "bg-brand-700 text-white" : "bg-card text-foreground"
+                      )}
+                    >
+                      {sys.name}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </Section>
 
           {system && (
             <>
               <Section title="Размеры">
-                <div className="flex flex-wrap gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <NumInput
                     label={system.extraField ? "Полная ширина" : "Ширина проёма"}
                     value={fullWidth}
@@ -704,10 +931,40 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
 
               {availableSubsystems.length > 0 && (
                 <Section title="Подсистема">
-                  <ChipGroup
-                    options={availableSubsystems}
+                  <VisualChipGroup
+                    options={availableSubsystems.map((sub) => {
+                      const poster = systemSlug ? subsystemPosters[systemSlug]?.[sub] : null;
+                      const video = systemSlug ? subsystemVideos[systemSlug]?.[sub] : null;
+                      return {
+                        value: sub,
+                        label: sub,
+                        imageUrl: poster,
+                        fullMedia: video
+                          ? { kind: "video" as const, url: video }
+                          : poster
+                          ? { kind: "image" as const, url: poster }
+                          : null,
+                      };
+                    })}
                     value={effectiveSubsystem}
                     onChange={(v) => { setSubsystemId(v); setResult(null); }}
+                    onPreview={(start) => {
+                      const items: PreviewItem[] = availableSubsystems
+                        .map((sub) => {
+                          const poster = systemSlug ? subsystemPosters[systemSlug]?.[sub] : null;
+                          const video = systemSlug ? subsystemVideos[systemSlug]?.[sub] : null;
+                          const media = video
+                            ? { kind: "video" as const, url: video }
+                            : poster
+                            ? { kind: "image" as const, url: poster }
+                            : null;
+                          return media ? { value: sub, label: sub, media } : null;
+                        })
+                        .filter((x): x is PreviewItem => !!x);
+                      if (items.length > 0) openPreview("subsystem", items, start);
+                    }}
+                    thumbClassName="w-28 h-20"
+                    thumbObjectFit="cover"
                   />
                 </Section>
               )}
@@ -716,18 +973,50 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
               )}
 
               <Section title="Стекло">
-                <ChipGroup
-                  options={[...glassOptions]}
+                <VisualChipGroup
+                  options={glassOptions.map((g) => ({
+                    value: g,
+                    label: g,
+                    imageUrl: glassImages[g],
+                    fullMedia: glassImages[g] ? { kind: "image" as const, url: glassImages[g] } : null,
+                  }))}
                   value={glass}
                   onChange={(v) => { setGlass(v); setResult(null); }}
+                  onPreview={(start) => {
+                    const items: PreviewItem[] = glassOptions
+                      .map((g) => {
+                        const url = glassImages[g];
+                        return url ? { value: g, label: g, media: { kind: "image" as const, url } } : null;
+                      })
+                      .filter((x): x is PreviewItem => !!x);
+                    if (items.length > 0) openPreview("glass", items, start);
+                  }}
+                  thumbClassName="w-24 h-24"
+                  thumbObjectFit="cover"
                 />
               </Section>
 
               <Section title="Шотланки">
-                <ChipGroup
-                  options={filteredShotlanOptions}
+                <VisualChipGroup
+                  options={filteredShotlanOptions.map((s) => ({
+                    value: s,
+                    label: s,
+                    imageUrl: shotlanImages[s],
+                    fullMedia: shotlanImages[s] ? { kind: "image" as const, url: shotlanImages[s] } : null,
+                  }))}
                   value={shotlan}
                   onChange={(v) => { setShotlan(v); setResult(null); }}
+                  onPreview={(start) => {
+                    const items: PreviewItem[] = filteredShotlanOptions
+                      .map((s) => {
+                        const url = shotlanImages[s];
+                        return url ? { value: s, label: s, media: { kind: "image" as const, url } } : null;
+                      })
+                      .filter((x): x is PreviewItem => !!x);
+                    if (items.length > 0) openPreview("shotlan", items, start);
+                  }}
+                  thumbClassName="w-28 h-20"
+                  thumbObjectFit="contain"
                 />
               </Section>
 
@@ -799,15 +1088,58 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
       )}
 
       {/* Step 3: Result — Proposal Preview */}
-      {step === "result" && result && system && (
+      {step === "result" && result && system && (() => {
+        // Сборщик payload-а карточки. Используется и при ручном сохранении, и при
+        // автосохранении при скачивании PDF.
+        // Имя/телефон менеджера: если в текущей компании выбран — берём оттуда,
+        // иначе сохраняем то, что было сохранено в карточке (важно когда админ
+        // открывает партнёрскую карточку и партнёрский менеджер отсутствует
+        // в списке коллег админа).
+        const effectiveManagerName = selectedManager?.name || initialData?.managerName || "";
+        const effectiveManagerPhone =
+          selectedManager?.phone ?? initialData?.managerPhone ?? null;
+
+        const buildCardData = (): ClientCardData | null => {
+          if (!system || !effectiveSubsystem || !result) return null;
+          return {
+            clientName,
+            clientPhone,
+            clientAddress,
+            managerName: effectiveManagerName,
+            managerPhone: effectiveManagerPhone,
+            branch: branchAddress || "",
+            systemSlug: systemSlug || initialData?.systemSlug || undefined,
+            systemName: system.name,
+            subsystem: effectiveSubsystem || subsystemId || initialData?.subsystem || "",
+            glass: glass || initialData?.glass || "",
+            shotlan: shotlan || initialData?.shotlan || "Без шотланок",
+            fullWidth: fullWidth || initialData?.fullWidth || 0,
+            openWidth: openWidth || initialData?.openWidth || 0,
+            height: height || initialData?.height || 0,
+            doorWidth: result.doorWidth,
+            totalPrice: result.total,
+            components: result.components,
+            customServices: customServices.filter(s => s.name.trim() && (s.price > 0 || s.description?.trim())),
+            companyName: initialData?.companyName ?? null,
+          };
+        };
+
+        const handleBeforePdfDownload = async () => {
+          const card = buildCardData();
+          if (card && onSilentSave) {
+            await onSilentSave(card);
+          }
+        };
+
+        return (
         <div className="space-y-6">
           <ProposalPreview
             data={{
               clientName,
               clientPhone,
               clientAddress,
-              managerName: selectedManager?.name || "",
-              managerPhone: selectedManager?.phone,
+              managerName: effectiveManagerName,
+              managerPhone: effectiveManagerPhone ?? undefined,
               branchAddress: branchAddress || "",
               systemName: system.name,
               subsystem: effectiveSubsystem || subsystemId || initialData?.subsystem || "",
@@ -820,9 +1152,11 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
               glassImageUrl,
               components: result.components,
               totalPrice: result.total,
-              customServices: customServices.filter(s => s.name.trim() && s.price > 0),
+              customServices: customServices.filter(s => s.name.trim() && (s.price > 0 || s.description?.trim())),
               variant: variantData,
+              partnerCompanyName: initialData?.companyName ?? null,
             }}
+            onBeforePdfDownload={handleBeforePdfDownload}
           />
 
           {/* Buttons */}
@@ -853,7 +1187,7 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
                     doorWidth: result.doorWidth,
                     totalPrice: result.total,
                     components: result.components,
-                    customServices: customServices.filter(s => s.name.trim() && s.price > 0),
+                    customServices: customServices.filter(s => s.name.trim() && (s.price > 0 || s.description?.trim())),
                   });
                 }
               }}
@@ -864,7 +1198,120 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onCa
             </Button>
           </div>
         </div>
-      )}
+        );
+      })()}
+
+      {/* Полноэкранный просмотр медиа: prev/next в пределах своей секции,
+          кнопка «Выбрать» для подтверждения текущего варианта. */}
+      {mediaPreview && (() => {
+        const { section, items, index } = mediaPreview;
+        const cur = items[index];
+        const prev = () => setMediaPreview({ section, items, index: (index - 1 + items.length) % items.length });
+        const next = () => setMediaPreview({ section, items, index: (index + 1) % items.length });
+        const select = () => {
+          if (section === "system") {
+            if (systemSlug !== cur.value) {
+              setSystemSlug(cur.value);
+              setSubsystemId(null);
+              setGlass(null);
+              setShotlan("Без шотланок");
+              setResult(null);
+              setFullWidth(0);
+              setOpenWidth(0);
+              setHeight(0);
+            }
+          } else if (section === "subsystem") {
+            setSubsystemId(cur.value);
+            setResult(null);
+          } else if (section === "glass") {
+            setGlass(cur.value);
+            setResult(null);
+          } else if (section === "shotlan") {
+            setShotlan(cur.value);
+            setResult(null);
+          }
+          setMediaPreview(null);
+        };
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6"
+            onClick={() => setMediaPreview(null)}
+          >
+            {/* Закрыть */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setMediaPreview(null); }}
+              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
+              aria-label="Закрыть"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Prev */}
+            {items.length > 1 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); prev(); }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
+                aria-label="Предыдущий"
+              >
+                <ArrowLeft className="w-6 h-6" />
+              </button>
+            )}
+
+            {/* Next */}
+            {items.length > 1 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); next(); }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
+                aria-label="Следующий"
+              >
+                <ArrowRight className="w-6 h-6" />
+              </button>
+            )}
+
+            <div
+              className="bg-white rounded-2xl p-4 max-w-[92vw] max-h-[92vh] flex flex-col items-center gap-3 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between w-full px-2">
+                <div className="text-sm font-semibold text-foreground">{cur.label}</div>
+                <div className="text-[11px] text-muted-foreground tabular-nums">
+                  {index + 1} / {items.length}
+                </div>
+              </div>
+
+              {cur.media.kind === "video" ? (
+                <video
+                  key={cur.media.url}
+                  src={cur.media.url}
+                  autoPlay
+                  loop
+                  muted
+                  controls
+                  playsInline
+                  className="max-w-[88vw] max-h-[72vh] rounded-md bg-black"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={cur.media.url}
+                  src={cur.media.url}
+                  alt={cur.label}
+                  className="max-w-[88vw] max-h-[72vh] rounded-md object-contain"
+                />
+              )}
+
+              <div className="flex items-center gap-2 pt-1">
+                <Button variant="outline" size="lg" onClick={() => setMediaPreview(null)}>
+                  Закрыть
+                </Button>
+                <Button variant="premium" size="lg" onClick={select}>
+                  Выбрать «{cur.label}»
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

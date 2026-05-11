@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { evaluateFormula } from "@/lib/calculations/formulaParser";
+import { requireAuth } from "@/lib/auth-helpers";
+import { rateLimit } from "@/lib/rate-limit";
 
 // Map slugs to system names in SystemFormula table
 const SLUG_TO_NAME: Record<string, string> = {
@@ -16,8 +18,24 @@ const SLUG_TO_NAME: Record<string, string> = {
 };
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const limited = rateLimit("calculate", req, { limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+  const { error } = await requireAuth();
+  if (error) return error;
+  const body = await req.json().catch(() => ({}));
   const { systemSlug, subsystemName, fullWidth, openWidth, height, glass, shotlan } = body;
+  // Базовая валидация входов: всё, что должно быть числом — должно быть числом и в разумных пределах.
+  for (const [k, v] of Object.entries({ fullWidth, openWidth, height })) {
+    if (v !== undefined && v !== null && (!Number.isFinite(v) || v < 0 || v > 50000)) {
+      return NextResponse.json({ error: `Некорректное значение поля ${k}` }, { status: 400 });
+    }
+  }
+  if (typeof systemSlug !== "string" || !systemSlug) {
+    return NextResponse.json({ error: "systemSlug обязателен" }, { status: 400 });
+  }
+  if (subsystemName !== undefined && typeof subsystemName !== "string") {
+    return NextResponse.json({ error: "subsystemName должен быть строкой" }, { status: 400 });
+  }
 
   const systemName = SLUG_TO_NAME[systemSlug];
   if (!systemName) {

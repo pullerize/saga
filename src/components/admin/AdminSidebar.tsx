@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
-import { Logo } from "@/components/shared/Logo";
+import { CompanyBrand } from "@/components/shared/CompanyBrand";
 import {
   LayoutDashboard,
   Calculator,
@@ -35,7 +35,7 @@ export function AdminSidebar() {
       {/* Logo */}
       <div className="p-6 border-b">
         <Link href="/">
-          <Logo size="sm" />
+          <CompanyBrand size="sm" />
         </Link>
       </div>
 

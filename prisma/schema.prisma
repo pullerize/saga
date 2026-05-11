@@ -19,11 +19,29 @@ model User {
   phone        String?
   role         String  @default("PARTNER")
   status       String  @default("PENDING")
+  // companyName хранится как денормализованное имя для совместимости с
+  // существующими местами, где идёт фильтрация ClientCard.companyName.
+  // companyId — связь на сущность Company (задаётся при создании из админки).
   companyName  String?
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id])
 
   partnerPrices PartnerPrice[]
   calculations  Calculation[]
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+// ── Companies (партнёрские компании) ──
+// «Saga Group» — компания по умолчанию для внутренних менеджеров и админов.
+model Company {
+  id        String  @id @default(cuid())
+  name      String  @unique
+  logoUrl   String?
+  users     User[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -162,6 +180,23 @@ model AdditionalService {
   updatedAt DateTime @updatedAt
 }
 
+// ── Doors (отдельные SVG двери для каждой подсистемы × шотланки) ──
+// Используются в слоте «Вид двери» в превью КП и PDF. При выборе пользователем
+// шотланки в калькуляторе — система автоматически подтягивает соответствующий SVG.
+model DoorScheme {
+  id            String @id @default(cuid())
+  systemSlug    String                 // напр. "cascade"
+  subsystemName String                 // напр. "3+0"
+  shotlanType   String                 // соответствует ShotlanOption.name
+  svgContent    String                 // raw SVG
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([systemSlug, subsystemName, shotlanType])
+  @@index([systemSlug, subsystemName])
+}
+
 // ── System Formulas (calculation formulas per system/subsystem) ──
 
 model SystemFormula {
@@ -248,6 +283,7 @@ model ClientCard {
   clientPhone   String
   clientAddress String @default("")
   managerName   String
+  managerPhone  String?
   branch        String
 
   systemSlug String?
@@ -261,6 +297,7 @@ model ClientCard {
   doorWidth  Int
   totalPrice Float
   components Json // Array<{name, key, qty, price, sum, unit}>
+  customServices Json? // Array<{name, description, price}>
 
   createdByUserId String?
   companyName     String  @default("Saga Group")

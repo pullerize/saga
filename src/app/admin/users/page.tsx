@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { Logo } from "@/components/shared/Logo";
+import { CompanyBrand } from "@/components/shared/CompanyBrand";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,7 +35,14 @@ interface AppUser {
   role: UserRole;
   status: UserStatus;
   companyName: string | null;
+  companyId: string | null;
   createdAt: string;
+}
+
+interface CompanyOption {
+  id: string;
+  name: string;
+  logoUrl: string | null;
 }
 
 type TabRole = "PARTNER" | "MANAGER";
@@ -58,7 +65,7 @@ interface FormState {
   phone: string;
   role: UserRole;
   status: UserStatus;
-  companyName: string;
+  companyId: string;
   password: string;
 }
 
@@ -68,13 +75,13 @@ const emptyForm: FormState = {
   phone: "",
   role: "PARTNER",
   status: "ACTIVE",
-  companyName: "",
+  companyId: "",
   password: "",
 };
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
-  const [companies, setCompanies] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<TabRole>("PARTNER");
@@ -102,7 +109,7 @@ export default function AdminUsersPage() {
     try {
       const res = await fetch("/api/companies");
       if (res.ok) {
-        const data = await res.json();
+        const data: CompanyOption[] = await res.json();
         setCompanies(data);
       }
     } catch {
@@ -140,7 +147,13 @@ export default function AdminUsersPage() {
   }, [users]);
 
   function openCreate() {
-    setForm({ ...emptyForm, role: activeTab });
+    // По умолчанию для менеджеров (внутренних) подставляем компанию «Saga Group»,
+    // для партнёров оставляем пустым — admin должен явно выбрать компанию.
+    const defaultCompany =
+      activeTab === "MANAGER"
+        ? companies.find((c) => c.name === "Saga Group")?.id ?? ""
+        : "";
+    setForm({ ...emptyForm, role: activeTab, companyId: defaultCompany });
     setFormError("");
     setShowPassword(false);
     setEditingId(null);
@@ -154,7 +167,7 @@ export default function AdminUsersPage() {
       phone: u.phone ?? "",
       role: u.role,
       status: u.status,
-      companyName: u.companyName ?? "",
+      companyId: u.companyId ?? "",
       password: "",
     });
     setFormError("");
@@ -177,6 +190,10 @@ export default function AdminUsersPage() {
       setFormError("Имя и email обязательны");
       return;
     }
+    if (!form.companyId) {
+      setFormError("Выберите компанию");
+      return;
+    }
     if (view === "create" && !form.password) {
       setFormError("Укажите пароль");
       return;
@@ -190,7 +207,7 @@ export default function AdminUsersPage() {
         phone: form.phone.trim(),
         role: form.role,
         status: form.status,
-        companyName: form.companyName.trim(),
+        companyId: form.companyId,
       };
       if (form.password) payload.password = form.password;
 
@@ -240,7 +257,7 @@ export default function AdminUsersPage() {
               К панели
             </Button>
           </Link>
-          <Logo size="sm" />
+          <CompanyBrand size="sm" />
           <span className="text-sm font-semibold text-brand-600">Пользователи</span>
         </div>
         {view === "list" && (
@@ -341,7 +358,10 @@ export default function AdminUsersPage() {
               </Card>
             ) : (
               <div className="grid gap-3">
-                {filtered.map((u) => (
+                {filtered.map((u) => {
+                  const company = companies.find((c) => c.id === u.companyId);
+                  const isExternal = u.role === "PARTNER" && company && company.name !== "Saga Group";
+                  return (
                   <Card key={u.id} className="transition-colors hover:border-brand-300">
                     <CardContent className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5">
                       <div className="flex items-start gap-4 min-w-0">
@@ -357,6 +377,23 @@ export default function AdminUsersPage() {
                             <Badge variant={statusBadgeVariant(u.status)}>
                               {STATUS_LABELS[u.status]}
                             </Badge>
+                            {isExternal && company?.logoUrl && (
+                              <span className="inline-flex items-center gap-2 ml-1 px-2 py-1 rounded-md border border-border bg-muted/40">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={company.logoUrl}
+                                  alt={company.name}
+                                  className="h-6 max-w-[80px] object-contain"
+                                />
+                                <span className="text-[10px] text-muted-foreground">×</span>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src="/img/logo/123.png"
+                                  alt="SAGA"
+                                  className="h-6 max-w-[80px] object-contain"
+                                />
+                              </span>
+                            )}
                           </div>
                           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1.5 min-w-0">
@@ -405,7 +442,8 @@ export default function AdminUsersPage() {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>
@@ -464,24 +502,23 @@ export default function AdminUsersPage() {
                         placeholder="+998 00 000 00 00"
                       />
                     </Field>
-                    {form.role === "PARTNER" && (
-                      <Field label="Компания">
-                        <Input
-                          value={form.companyName}
-                          onChange={(e) => setForm({ ...form, companyName: e.target.value })}
-                          placeholder="Название компании"
-                          list="company-suggestions"
-                        />
-                        <datalist id="company-suggestions">
-                          {companies.map((c) => (
-                            <option key={c} value={c} />
-                          ))}
-                        </datalist>
-                        <p className="text-xs text-muted-foreground mt-1.5">
-                          Партнёры из одной компании видят карточки друг друга.
-                        </p>
-                      </Field>
-                    )}
+                    <Field label="Компания" required>
+                      <select
+                        value={form.companyId}
+                        onChange={(e) => setForm({ ...form, companyId: e.target.value })}
+                        required
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 cursor-pointer"
+                      >
+                        <option value="" disabled>— выберите компанию —</option>
+                        {companies.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Пользователи одной компании видят карточки друг друга. Создать компанию можно
+                        в разделе «<Link href="/admin/companies" className="underline hover:text-brand-600">Компании</Link>».
+                      </p>
+                    </Field>
                     <Field label="Статус">
                       <div className="grid grid-cols-3 gap-2">
                         {(["ACTIVE", "PENDING", "BLOCKED"] as UserStatus[]).map((s) => (

@@ -28,18 +28,33 @@ function formatFilenameDate(iso?: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default function PDFDownloadBtn(props: CalculationPDFProps) {
+type Props = CalculationPDFProps & {
+  /** Опциональный колбэк, вызываемый ДО генерации PDF — например, для сохранения карточки. */
+  onBeforeDownload?: () => Promise<void> | void;
+};
+
+export default function PDFDownloadBtn(props: Props) {
+  const { onBeforeDownload, ...pdfProps } = props;
   const [loading, setLoading] = useState(false);
 
   const handleDownload = useCallback(async () => {
     setLoading(true);
     try {
+      // Сначала сохраняем карточку (если передан колбэк), потом генерим PDF.
+      if (onBeforeDownload) {
+        try {
+          await onBeforeDownload();
+        } catch (err) {
+          console.error("Save before PDF download failed:", err);
+        }
+      }
+
       const [{ pdf }, { default: CalculationPDF }] = await Promise.all([
         import("@react-pdf/renderer"),
         import("./CalculationPDF"),
       ]);
 
-      const doc = createElement(CalculationPDF, props);
+      const doc = createElement(CalculationPDF, pdfProps);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const blob = await pdf(doc as any).toBlob();
       const url = URL.createObjectURL(blob);
@@ -49,7 +64,7 @@ export default function PDFDownloadBtn(props: CalculationPDFProps) {
     } finally {
       setLoading(false);
     }
-  }, [props]);
+  }, [pdfProps, onBeforeDownload]);
 
   return (
     <button

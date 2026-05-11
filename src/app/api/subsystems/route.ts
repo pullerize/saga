@@ -1,41 +1,59 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireRole } from "@/lib/auth-helpers";
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  const count = await prisma.subsystem.count({ where: { systemId: body.systemId } });
-  const sub = await prisma.subsystem.create({
-    data: {
-      systemId: body.systemId,
-      name: body.name,
-      minWidth: body.minWidth ?? 600,
-      maxWidth: body.maxWidth ?? 6000,
-      sortOrder: count,
-      params: body.params ?? {},
-      formulas: body.formulas ?? null,
-    },
-  });
-  return NextResponse.json(sub, { status: 201 });
+  const { error } = await requireRole("ADMIN");
+  if (error) return error;
+  const body = await req.json().catch(() => ({}));
+  if (!body?.systemId || !body?.name) {
+    return NextResponse.json({ error: "systemId и name обязательны" }, { status: 400 });
+  }
+  try {
+    const count = await prisma.subsystem.count({ where: { systemId: body.systemId } });
+    const sub = await prisma.subsystem.create({
+      data: {
+        systemId: body.systemId,
+        name: String(body.name).trim(),
+        minWidth: Number.isFinite(body.minWidth) ? body.minWidth : 600,
+        maxWidth: Number.isFinite(body.maxWidth) ? body.maxWidth : 6000,
+        sortOrder: count,
+        params: body.params ?? {},
+        formulas: body.formulas ?? null,
+      },
+    });
+    return NextResponse.json(sub, { status: 201 });
+  } catch {
+    return NextResponse.json({ error: "Не удалось создать подсистему" }, { status: 500 });
+  }
 }
 
 export async function PUT(req: Request) {
-  const body = await req.json();
+  const { error } = await requireRole("ADMIN");
+  if (error) return error;
+  const body = await req.json().catch(() => ({}));
   const { id, ...data } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const sub = await prisma.subsystem.update({
-    where: { id },
-    data: {
-      name: data.name,
-      minWidth: data.minWidth,
-      maxWidth: data.maxWidth,
-      params: data.params ?? {},
-      formulas: data.formulas ?? null,
-    },
-  });
-  return NextResponse.json(sub);
+  try {
+    const sub = await prisma.subsystem.update({
+      where: { id },
+      data: {
+        name: data.name,
+        minWidth: data.minWidth,
+        maxWidth: data.maxWidth,
+        params: data.params ?? {},
+        formulas: data.formulas ?? null,
+      },
+    });
+    return NextResponse.json(sub);
+  } catch {
+    return NextResponse.json({ error: "Не удалось обновить" }, { status: 500 });
+  }
 }
 
 export async function DELETE(req: Request) {
+  const { error } = await requireRole("ADMIN");
+  if (error) return error;
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

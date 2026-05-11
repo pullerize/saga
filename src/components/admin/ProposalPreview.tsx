@@ -6,6 +6,10 @@ import { Input } from "@/components/ui/input";
 import { cn, formatPrice } from "@/lib/utils";
 import { type CalcComponent } from "@/lib/calculations/engine";
 import PDFDownloadBtn from "@/components/pdf/PDFDownloadBtn";
+import { extractSystemGroup, scaleSystemGroup, computeBBox, positionHandlesOnDoors, findDoorCenters, getSvgViewBox, setSvgViewBox } from "@/lib/svgGroup";
+import { tryGenerateSystemScheme, tryGenerateDoorScheme, tryGenerateTopScheme } from "@/lib/calculations/generateScheme";
+import { systemsData } from "@/lib/calculations/systemsData";
+import { glassOptions, shotlanOptions, hideWithRiffled } from "@/lib/calculations/constants";
 import { Pencil, Check, X, FileText } from "lucide-react";
 
 /**
@@ -48,6 +52,9 @@ function renderSvgWithDimensions(
     .replace(/\{\{WIDTH\}\}/g, String(schemeIndex === 0 ? width : doorWidth))
     .replace(/\{\{HEIGHT\}\}/g, String(height))
     .replace(/\{\{DOOR_WIDTH\}\}/g, String(doorWidth))
+    // Свободный проём, когда все двери сдвинуты в один край
+    // (для каскада ≈ 2 × ширина двери). Используется в виде сверху.
+    .replace(/\{\{GAP_MINUS_DOOR\}\}/g, String(Math.max(0, width - doorWidth)))
     .replace(/\{\{DOORS\}\}/g, "");
 
   // Force a consistent font family for any <text> elements already baked into the SVG,
@@ -59,29 +66,92 @@ function renderSvgWithDimensions(
     return `<text${cleaned} font-family="Arial, Helvetica, sans-serif" font-weight="700">`;
   });
 
+  // Адаптивная система: <g id="system"> масштабируется по обеим осям так, чтобы
+  // её пропорции совпали с пропорциями проёма. "Fit inside" исходного bbox —
+  // система не выходит за нарисованную область.
+  // Профили, рамки и stroke-width масштабируются вместе с системой (это даёт
+  // пропорциональный вид). Ручки имеют counter-scale внутри scaleSystemGroup,
+  // их физический размер сохраняется.
+  if (schemeIndex === 0 && height > 0 && width > 0) {
+    const group = extractSystemGroup(svg);
+    if (group) {
+      const bbox = computeBBox(group.inner);
+      if (bbox && bbox.w > 0 && bbox.h > 0) {
+        const origAspect = bbox.w / bbox.h;
+        const targetAspect = width / height;
+        let scaleX: number;
+        let scaleY: number;
+        if (targetAspect >= origAspect) {
+          // проём шире нарисованного — оставляем полную ширину, высоту уменьшаем
+          scaleX = 1;
+          scaleY = origAspect / targetAspect;
+        } else {
+          // проём уже нарисованного — оставляем полную высоту, ширину уменьшаем
+          scaleY = 1;
+          scaleX = targetAspect / origAspect;
+        }
+        // scaleSystemGroup теперь сам применяет тот же transform к группе
+        // <g id="handles">, поэтому отдельный вызов positionHandlesOnDoors
+        // больше не нужен (он бы давал двойную коррекцию).
+        svg = scaleSystemGroup(svg, scaleX, scaleY);
+      }
+    }
+  }
+
   // Parse viewBox
   const vbMatch = svg.match(/viewBox\s*=\s*["']([^"']+)["']/);
   if (!vbMatch) return svg;
   const parts = vbMatch[1].split(/[\s,]+/).map(Number);
   const vbX = parts[0], vbY = parts[1], svgW = parts[2], svgH = parts[3];
 
-  const dimW = schemeIndex === 0 ? width : doorWidth;
+  // Подпись ширины снизу: door view (idx 1) показывает ширину двери, остальные — полную ширину проёма.
+  const dimW = schemeIndex === 1 ? doorWidth : width;
   const dimH = height;
 
-  // Which labels to draw per scheme type:
-  //   0 — system: width (bottom) + height (right)
-  //   1 — door:   doorWidth (bottom) + height (right)
-  //   2 — side:   height (right) only. The bottom is a thin slice.
-  //   3 — top:    width (bottom) only.
+  // Подписи размеров по индексу схемы (после удаления side-view):
+  //   0 — вид системы: ширина снизу + высота справа
+  //   1 — вид двери:   ширина двери снизу + высота справа
+  //   2 — вид сверху:  свои внутренние размерные линии (общая, средняя, нижняя),
+  //                    автоматические подписи не нужны
   const showBottom = schemeIndex !== 2;
-  const showRight = schemeIndex !== 3;
+  const showRight = schemeIndex !== 2;
 
-  // Always scale from the LONGEST side — this keeps the font size proportional
-  // to the drawing regardless of whether it's narrow (side) or wide (top).
-  const sc = Math.max(svgW, svgH) / 200;
+  // Шкала подписей размеров.
+  //   • Процедурные SVG (data-procedural) — шкала по реальным размерам проёма.
+  //   • Загруженные SVG с <g id="system"> — тоже по реальным размерам, иначе
+  //     при огромном viewBox (14901, например) подписи становятся слишком
+  //     толстыми относительно реально маленькой системы 2000×2000.
+  //   • Прочие — по viewBox (legacy).
+  const isProcedural = /<svg\b[^>]*\bdata-procedural\b/i.test(svg);
+  const hasSystemGroup = /<g\b[^>]*\bid\s*=\s*["']system["']/i.test(svg)
+    || /<g\b[^>]*\binkscape:label\s*=\s*["']system["']/i.test(svg);
+  const useRealScale = isProcedural || hasSystemGroup;
+  // Для нормального шрифта на больших viewBox нужно учитывать масштаб системы
+  // в координатах SVG. Берём bbox системы (если есть) и переводим реальный
+  // размер в эти единицы.
+  let sc: number;
+  if (useRealScale) {
+    // Базовая шкала от реальных габаритов проёма
+    const realScale = Math.max(width, height) / 200;
+    // Коэффициент пересчёта в единицы viewBox: bbox системы → viewBox
+    const sysGroup = extractSystemGroup(svg);
+    const sysBBox = sysGroup ? computeBBox(sysGroup.inner) : null;
+    const sysSpan = sysBBox ? Math.max(sysBBox.w, sysBBox.h) : Math.max(svgW, svgH);
+    const realSpan = Math.max(width, height) || 1;
+    const ratio = sysSpan / realSpan; // сколько viewBox-единиц приходится на 1мм реальных
+    sc = realScale * ratio;
+  } else {
+    sc = Math.max(svgW, svgH) / 200;
+  }
   const lineW = Math.max(sc * 0.3, 0.5);
   const tickL = Math.round(sc * 2);
-  const fontSize = Math.max(Math.round(sc * 6), 22);
+  // Множитель шрифта: для дверного слота повышенный — дверная картинка
+  // в PDF рендерится в более узкой области, чем системная, и при тех же
+  // SVG-единицах текст после стретча получается мельче. Поэтому на этапе
+  // SVG увеличиваем размер шрифта, чтобы итог на странице совпадал с
+  // системными подписями.
+  const fontMul = schemeIndex === 1 ? 9 : 6;
+  const fontSize = Math.max(Math.round(sc * fontMul), 22);
   const gap = Math.round(sc * 3);
 
   // Bottom dimension line (width)
@@ -134,9 +204,16 @@ function renderSvgWithDimensions(
   // to the bottom label area, making them look shorter in the row.
   const extraRight = gap * 2 + labelPad + fontSize * 2;
   const extraBottom = gap * 2 + labelPad + fontSize;
-  const newW = Math.round(svgW + extraRight);
-  const newH = Math.round(svgH + extraBottom);
-  svg = svg.replace(vbMatch[0], `viewBox="${vbX} ${vbY} ${newW} ${newH}"`);
+  // Маленький буфер слева/сверху под stroke геометрии, который частично
+  // выходит за границы viewBox (например, левый край двери с центрированным
+  // штрихом). Без буфера sharp обрезает stroke и левый край двери выглядит
+  // тоньше остальных.
+  const strokeBuf = Math.max(lineW * 4, 6);
+  const newOriginX = vbX - strokeBuf;
+  const newOriginY = vbY - strokeBuf;
+  const newW = Math.round(svgW + extraRight + strokeBuf);
+  const newH = Math.round(svgH + extraBottom + strokeBuf);
+  svg = svg.replace(vbMatch[0], `viewBox="${newOriginX} ${newOriginY} ${newW} ${newH}"`);
 
   // Also update width/height attributes on <svg>
   svg = svg.replace(/(<svg[^>]*)\bwidth="[\d.]+"/, `$1 width="${newW}"`);
@@ -160,15 +237,33 @@ interface SchemeData {
   ratioType?: string | null;
 }
 
-const SYSTEM_RATIO_TYPES = new Set(["wide", "square", "tall"]);
+const SYSTEM_RATIO_TYPES = new Set(["system", "wide", "square", "tall"]);
 
 /**
  * Pick the right system scheme based on width/height ratio.
- * "wide" = width > height * 1.15
- * "square" = roughly equal
- * "tall" = height > width * 1.15
+ *
+ * Новый режим: если среди схем есть хоть одна с обёрткой <g id="system">,
+ *              используем её для любых пропорций — система внутри неё
+ *              масштабируется через transform (см. renderSvgWithDimensions).
+ * Старый режим: ищем схему по ratioType (wide/square/tall) как раньше.
  */
 function pickSystemScheme(schemes: SchemeData[], width: number, height: number): SchemeData | null {
+  // 1. Adaptive по ratioType + наличию <g id="system">
+  const adaptiveByType = schemes.find(
+    (s) =>
+      s.ratioType &&
+      SYSTEM_RATIO_TYPES.has(s.ratioType) &&
+      extractSystemGroup(s.svgContent) !== null
+  );
+  if (adaptiveByType) return adaptiveByType;
+
+  // 1b. Любая схема с <g id="system"> внутри (без проверки ratioType) —
+  // полезно когда дизайнер забыл проставить тип, но схема правильно
+  // структурирована.
+  const adaptiveAny = schemes.find((s) => extractSystemGroup(s.svgContent) !== null);
+  if (adaptiveAny) return adaptiveAny;
+
+  // 2. Legacy fallback по соотношению
   const ratio = width / height;
   let type: string;
   if (ratio > 1.15) type = "wide";
@@ -177,7 +272,6 @@ function pickSystemScheme(schemes: SchemeData[], width: number, height: number):
 
   const match = schemes.find((s) => s.ratioType === type);
   if (match) return match;
-  // Fallback: any ratio-typed system scheme
   return schemes.find((s) => s.ratioType && SYSTEM_RATIO_TYPES.has(s.ratioType)) || null;
 }
 
@@ -197,21 +291,64 @@ function getSchemeByType(schemes: SchemeData[], type: "door" | "side" | "top"): 
 
 /**
  * Build the ordered list of schemes to display in preview/PDF:
- *   1. System view (one of wide/square/tall, picked by ratio)
- *   2. Door (always)
- *   3. Side view (always)
- *   4. Top view (always)
+ *   1. System view — приоритет загруженного SVG, fallback на процедурный.
+ *   2. Door view — приоритет загруженного, иначе берётся ТА ЖЕ схема, что и
+ *      «Вид системы» (по требованию: дверь визуально должна совпадать с
+ *      видом системы). Процедурная door-генерация сейчас отключена.
+ *   3. Top view — приоритет загруженного, fallback на процедурный.
+ *
+ * Side view убран намеренно.
  */
-function buildDisplaySchemes(schemes: SchemeData[], width: number, height: number): SchemeData[] {
+function buildDisplaySchemes(
+  schemes: SchemeData[],
+  width: number,
+  height: number,
+  doorWidth: number,
+  systemName: string,
+  subsystem: string,
+  doorSvgFromShotlan?: string | null,
+): SchemeData[] {
   const out: SchemeData[] = [];
-  const system = pickSystemScheme(schemes, width, height);
-  if (system) out.push(system);
-  const door = getSchemeByType(schemes, "door");
-  if (door) out.push(door);
-  const side = getSchemeByType(schemes, "side");
-  if (side) out.push(side);
-  const top = getSchemeByType(schemes, "top");
-  if (top) out.push(top);
+
+  // System view: загруженный → процедурный.
+  const uploadedSystem = pickSystemScheme(schemes, width, height);
+  let systemScheme: SchemeData | null = null;
+  if (uploadedSystem) {
+    systemScheme = uploadedSystem;
+  } else {
+    const generatedSystem = tryGenerateSystemScheme(systemName, subsystem, width, height);
+    if (generatedSystem) {
+      systemScheme = { label: "Вид системы", svgContent: generatedSystem, ratioType: "system" };
+    }
+  }
+  if (systemScheme) out.push(systemScheme);
+
+  // Door view: приоритет — SVG, привязанный к выбранной шотланке (из /admin/doors).
+  // Иначе — загруженный door через variants. Иначе — тот же SVG, что и система.
+  if (doorSvgFromShotlan) {
+    out.push({ label: "Вид двери", svgContent: doorSvgFromShotlan, ratioType: "door" });
+  } else {
+    const uploadedDoor = getSchemeByType(schemes, "door");
+    if (uploadedDoor) {
+      out.push(uploadedDoor);
+    } else if (systemScheme) {
+      out.push({
+        ...systemScheme,
+        label: "Вид двери",
+        ratioType: "door",
+      });
+    }
+  }
+
+  const uploadedTop = getSchemeByType(schemes, "top");
+  if (uploadedTop) {
+    out.push(uploadedTop);
+  } else {
+    const generatedTop = tryGenerateTopScheme(systemName, subsystem, width, doorWidth);
+    if (generatedTop) {
+      out.push({ label: "Вид сверху", svgContent: generatedTop, ratioType: "top" });
+    }
+  }
   return out;
 }
 
@@ -245,6 +382,13 @@ interface ProposalData {
   components: CalcComponent[];
   totalPrice: number;
   customServices?: Array<{ name: string; description: string; price: number }>;
+  // 3 свободные строки на странице итогов в PDF (могут быть пустыми)
+  notes?: string[];
+  // Имя партнёрской компании, к которой привязана карточка. Если задано —
+  // в шапке PDF и брендинге используется именно эта компания (а не та, в
+  // которой залогинен текущий пользователь). Важно, когда админ Saga Group
+  // открывает карточку из партнёрской компании.
+  partnerCompanyName?: string | null;
   // Variant (optional)
   variant?: Variant | null;
 }
@@ -288,13 +432,87 @@ function EditableField({
   );
 }
 
+/* ─── Editable select — выпадающий список значений для блока «Параметры системы».
+   Подпись сверху, значение снизу; иконка-карандаш или двойной клик открывает
+   нативный <select> с заданными опциями. Если options пустой — поле read-only. */
+function EditableSelect({
+  label,
+  value,
+  options,
+  onChange,
+  display,
+}: {
+  label: string;
+  value: string;
+  options: readonly string[];
+  onChange: (v: string) => void;
+  /** Кастомный рендер в режиме просмотра. */
+  display?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const canEdit = options.length > 0;
+
+  if (editing && canEdit) {
+    return (
+      <div>
+        <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
+        <div className="flex items-center gap-1">
+          <select
+            autoFocus
+            value={value}
+            onChange={(e) => { onChange(e.target.value); setEditing(false); }}
+            onBlur={() => setEditing(false)}
+            className="h-7 text-sm rounded-md border border-border bg-background px-2 flex-1 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 cursor-pointer"
+          >
+            {!options.includes(value) && value && (
+              <option value={value} disabled>{value} (текущее)</option>
+            )}
+            {options.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0" onClick={() => setEditing(false)}>
+            <X className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group">
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <div className="flex items-center gap-1">
+        <p
+          className={cn("text-sm font-semibold", canEdit && "cursor-pointer")}
+          onDoubleClick={() => { if (canEdit) setEditing(true); }}
+        >
+          {display ?? (value || "—")}
+        </p>
+        {canEdit && (
+          <button
+            onClick={() => setEditing(true)}
+            className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+            title="Изменить"
+          >
+            <Pencil className="w-3 h-3 text-muted-foreground hover:text-brand-600" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main component ─── */
 export function ProposalPreview({
   data: initialData,
   onDataChange,
+  onBeforePdfDownload,
 }: {
   data: ProposalData;
   onDataChange?: (data: ProposalData) => void;
+  /** Вызывается до генерации PDF — например, для авто-сохранения карточки. */
+  onBeforePdfDownload?: () => Promise<void> | void;
 }) {
   const [data, setData] = useState(initialData);
 
@@ -315,7 +533,61 @@ export function ProposalPreview({
   ]);
   const [schemeSvgUrls, setSchemeSvgUrls] = useState<string[]>([]);
   const [schemeSizes, setSchemeSizes] = useState<Array<{ w: number; h: number }>>([]);
+  // Соотношения «одна дверь / весь viewBox» в системном и дверном SVG.
+  // Нужны, чтобы в PDF и в превью слот «Вид двери» вышел ровно того же
+  // визуального размера, что одна дверь в «Вид системы». Учитываем подписи
+  // вокруг двери в дверном SVG: его door занимает ratio.door < 1 от выходной
+  // картинки, поэтому выходной размер = sysSize × sys / door.
+  const [doorBoxRatio, setDoorBoxRatio] = useState<{
+    sys: { w: number; h: number };
+    door: { w: number; h: number };
+  } | null>(null);
   const [schemeModal, setSchemeModal] = useState<string | null>(null);
+
+  // Системы, реально настроенные в БД. Фильтруем хардкоженый systemsData по этому списку.
+  const [activeSystemSlugs, setActiveSystemSlugs] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    fetch("/api/systems")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Array<{ slug: string }>) =>
+        setActiveSystemSlugs(new Set(rows.map((r) => r.slug)))
+      )
+      .catch(() => setActiveSystemSlugs(new Set()));
+  }, []);
+
+  // Компания текущего залогиненного пользователя — для лого «партнёр × SAGA» в PDF.
+  const [myCompany, setMyCompany] = useState<{ id: string | null; name: string; logoUrl: string | null } | null>(null);
+  useEffect(() => {
+    fetch("/api/me/company")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => setMyCompany(c))
+      .catch(() => setMyCompany(null));
+  }, []);
+
+  // SVG двери под выбранную шотланку (загружается из /admin/doors).
+  const [doorSvg, setDoorSvg] = useState<string | null>(null);
+  useEffect(() => {
+    const slug = (initialData.systemName || "")
+      .trim()
+      .toLowerCase()
+      .includes("каскад") ? "cascade" : null;
+    // Резолвим slug по systemName: пока поддерживаем явные мапы для известных
+    // систем. Для расширяемости можно завести обратную мапу name→slug.
+    const sub = initialData.subsystem;
+    const sh = initialData.shotlan || "Без шотланок";
+    if (!slug || !sub) { setDoorSvg(null); return; }
+    let cancelled = false;
+    fetch(
+      `/api/doors?systemSlug=${encodeURIComponent(slug)}&subsystemName=${encodeURIComponent(sub)}&shotlanType=${encodeURIComponent(sh)}`,
+    )
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Array<{ svgContent: string }>) => {
+        if (cancelled) return;
+        setDoorSvg(rows[0]?.svgContent ?? null);
+      })
+      .catch(() => setDoorSvg(null));
+    return () => { cancelled = true; };
+  }, [initialData.systemName, initialData.subsystem, initialData.shotlan]);
 
   // Convert all display schemes (system + door + side + top) to PNG for PDF.
   // Source sizes from `initialData` (not local `data`) so that when the parent form
@@ -326,13 +598,88 @@ export function ProposalPreview({
     if (!schemes?.length) { setSchemeSvgUrls([]); return; }
     let cancelled = false;
 
-    const toConvert = buildDisplaySchemes(schemes, initialData.fullWidth, initialData.height);
+    const toConvert = buildDisplaySchemes(
+      schemes,
+      initialData.fullWidth,
+      initialData.height,
+      initialData.doorWidth,
+      initialData.systemName,
+      initialData.subsystem,
+      doorSvg,
+    );
+
+    const sysSvg = toConvert[0]?.svgContent;
+
+    // Сначала собираем готовые SVG-строки (с подписями размеров для слотов
+    // системы и двери — `renderSvgWithDimensions` расширяет viewBox под
+    // подписи). Потом по этим ИТОГОВЫМ строкам считаем доли двери — это
+    // важно: иначе ratio считается по голому viewBox без подписей и не
+    // совпадает с реальной долей двери в выходной PNG-картинке.
+    const renderedScheme = toConvert.map((scheme, idx) => {
+      const reusedFromSystem = idx > 0 && scheme.svgContent === sysSvg;
+      const effIdx = reusedFromSystem ? 0 : idx;
+      const rendered = renderSvgWithDimensions(
+        scheme.svgContent,
+        initialData.fullWidth,
+        initialData.height,
+        initialData.doorWidth,
+        1,
+        effIdx,
+      );
+      return { svg: rendered, reusedFromSystem };
+    });
+
+    const renderedSys = renderedScheme[0]?.svg;
+    const renderedDoor = renderedScheme[1] && !renderedScheme[1].reusedFromSystem
+      ? renderedScheme[1].svg
+      : null;
+
+    if (renderedSys) {
+      const sysGroup = extractSystemGroup(renderedSys);
+      const sysInner = sysGroup?.inner ?? renderedSys;
+      const sysBBox = computeBBox(sysInner);
+      const sysVB = getSvgViewBox(renderedSys);
+      // Считаем системную дверь через bbox системы и количество дверей
+      // (а не через findDoorCenters[0]) — это надёжнее, потому что некоторые
+      // SVG'и рисуют все двери одним <path> с несколькими M..L подпутями,
+      // и findDoorCenters в этом случае возвращает один общий bbox по всем
+      // дверям, что завышает sysDoor.w в N раз.
+      const numDoors = Math.max(
+        1,
+        Math.round(initialData.fullWidth / Math.max(1, initialData.doorWidth)),
+      );
+      const sysDoorW = sysBBox ? sysBBox.w / numDoors : 0;
+      const sysDoorH = sysBBox ? sysBBox.h : 0;
+
+      let doorRatio: { w: number; h: number } = { w: 1, h: 1 };
+      if (renderedDoor) {
+        const dGroup = extractSystemGroup(renderedDoor);
+        const dInner = dGroup?.inner ?? renderedDoor;
+        const dRect = findDoorCenters(dInner)[0];
+        const dVB = getSvgViewBox(renderedDoor);
+        if (dRect && dVB) {
+          doorRatio = { w: dRect.w / dVB.w, h: dRect.h / dVB.h };
+        }
+      }
+
+      if (sysBBox && sysVB && sysDoorW > 0 && sysDoorH > 0) {
+        if (!cancelled) {
+          setDoorBoxRatio({
+            sys: { w: sysDoorW / sysVB.w, h: sysDoorH / sysVB.h },
+            door: doorRatio,
+          });
+        }
+      } else if (!cancelled) {
+        setDoorBoxRatio(null);
+      }
+    } else if (!cancelled) {
+      setDoorBoxRatio(null);
+    }
 
     Promise.all(
-      toConvert.map((scheme, idx) => {
-        const rendered = renderSvgWithDimensions(scheme.svgContent, initialData.fullWidth, initialData.height, initialData.doorWidth, 1, idx);
-        return svgToPngViaServer(rendered).catch(() => ({ dataUrl: "", w: 0, h: 0 }));
-      })
+      renderedScheme.map(({ svg }) =>
+        svgToPngViaServer(svg).catch(() => ({ dataUrl: "", w: 0, h: 0 })),
+      ),
     ).then((results) => {
       if (!cancelled) {
         setSchemeSvgUrls(results.map(r => r.dataUrl));
@@ -340,7 +687,15 @@ export function ProposalPreview({
       }
     });
     return () => { cancelled = true; };
-  }, [initialData.variant?.schemes, initialData.fullWidth, initialData.height, initialData.doorWidth]);
+  }, [
+    initialData.variant?.schemes,
+    initialData.fullWidth,
+    initialData.height,
+    initialData.doorWidth,
+    initialData.systemName,
+    initialData.subsystem,
+    doorSvg,
+  ]);
 
   function update(partial: Partial<ProposalData>) {
     const next = { ...data, ...partial };
@@ -387,41 +742,68 @@ export function ProposalPreview({
       </div>
 
       {/* System params */}
-      <div className="rounded-xl border border-border p-4">
-        <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-3">Параметры системы</p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div>
-            <p className="text-[10px] text-muted-foreground">Система</p>
-            <p className="text-sm font-semibold">{data.systemName}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground">Подсистема</p>
-            <p className="text-sm font-semibold">{data.subsystem}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground">Размеры (Ш × В)</p>
-            <p className="text-sm font-semibold">{data.fullWidth} × {data.height} мм</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground">Ширина двери</p>
-            <p className="text-sm font-semibold">{data.doorWidth} мм</p>
-          </div>
-          {data.openWidth ? (
-            <div>
-              <p className="text-[10px] text-muted-foreground">Ширина проёма</p>
-              <p className="text-sm font-semibold">{data.openWidth} мм</p>
+      {(() => {
+        const allSystemEntries = Object.entries(systemsData);
+        // Если уже пришёл список активных слагов — фильтруем; иначе пока показываем всё.
+        const systemEntries = activeSystemSlugs
+          ? allSystemEntries.filter(([slug]) => activeSystemSlugs.has(slug))
+          : allSystemEntries;
+        const systemNameOptions = systemEntries.map(([, sys]) => sys.name);
+        const currentSystemEntry = allSystemEntries.find(([, sys]) => sys.name === data.systemName);
+        const subsystemOptions = currentSystemEntry
+          ? Object.keys(currentSystemEntry[1].subsystems)
+          : [];
+        const isRiffled = data.glass === "Рифленое";
+        const shotlanFiltered = shotlanOptions.filter((o) => !(isRiffled && hideWithRiffled.includes(o)));
+        return (
+          <div className="rounded-xl border border-border p-4">
+            <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-3">Параметры системы</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <EditableSelect
+                label="Система"
+                value={data.systemName}
+                options={systemNameOptions}
+                onChange={(v) => update({ systemName: v })}
+              />
+              <EditableSelect
+                label="Подсистема"
+                value={data.subsystem}
+                options={subsystemOptions}
+                onChange={(v) => update({ subsystem: v })}
+              />
+              <div>
+                <p className="text-[10px] text-muted-foreground">Размеры (Ш × В)</p>
+                <p className="text-sm font-semibold">{data.fullWidth} × {data.height} мм</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground">Ширина двери</p>
+                <p className="text-sm font-semibold">{data.doorWidth} мм</p>
+              </div>
+              {data.openWidth ? (
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Ширина проёма</p>
+                  <p className="text-sm font-semibold">{data.openWidth} мм</p>
+                </div>
+              ) : null}
+              <EditableSelect
+                label="Стекло"
+                value={data.glass}
+                options={glassOptions as unknown as string[]}
+                onChange={(v) => update({ glass: v })}
+              />
+              <EditableSelect
+                label="Шотланки"
+                value={data.shotlan}
+                options={shotlanFiltered as unknown as string[]}
+                onChange={(v) => update({ shotlan: v })}
+                display={data.shotlan && data.shotlan !== "Без шотланок" ? data.shotlan : "отсутствуют"}
+              />
+              {/* Доп. услуги (Боковая обшивка / Закладные / прочее) показываем
+                  только в таблице «Спецификация» ниже — здесь не дублируем. */}
             </div>
-          ) : null}
-          <div>
-            <p className="text-[10px] text-muted-foreground">Стекло</p>
-            <p className="text-sm font-semibold">{data.glass}</p>
           </div>
-          <div>
-            <p className="text-[10px] text-muted-foreground">Шотланки</p>
-            <p className="text-sm font-semibold">{data.shotlan}</p>
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Variant cards — premium style */}
       {data.variant && data.variant.items.length > 0 && (
@@ -481,43 +863,98 @@ export function ProposalPreview({
         </div>
       )}
 
-      {/* SVG Schemes — 4 schemes: system (ratio-based) + door + side + top.
-          Pull sizes from initialData so the ratio-based picker always sees the
-          latest values from the parent form. */}
+      {/* SVG Schemes — system (60%) + door (40%) в первой строке, top на второй строке. */}
       {initialData.variant?.schemes && initialData.variant.schemes.length > 0 && (
         <div className="rounded-xl border border-border p-4">
           <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-3">Схемы</p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-5 gap-4">
             {(() => {
               const h = 200;
-              const toShow = buildDisplaySchemes(initialData.variant!.schemes!, initialData.fullWidth, initialData.height);
+              const toShow = buildDisplaySchemes(
+                initialData.variant!.schemes!,
+                initialData.fullWidth,
+                initialData.height,
+                initialData.doorWidth,
+                initialData.systemName,
+                initialData.subsystem,
+                doorSvg,
+              );
               const labelFallbacks: Record<string, string> = {
                 wide: "Широкий проём",
                 square: "Квадратный проём",
                 tall: "Высокий проём",
                 door: "Дверь",
-                side: "Вид сбоку",
                 top: "Вид сверху",
               };
+              // Первая строка: вид системы (col-span 3 = 60%) + вид двери (col-span 2 = 40%).
+              // Всё остальное (вид сверху и т.д.) — на следующей строке полной шириной.
+              const colSpanByIndex = (i: number) =>
+                i === 0 ? "col-span-5 md:col-span-3" : i === 1 ? "col-span-5 md:col-span-2" : "col-span-5";
+
+              const sysSvg = toShow[0]?.svgContent;
+              // Считаем РЕНДЕР-пиксели одной двери в системном SVG.
+              // Системный SVG рендерится с фиксированной высотой `h`, ширина
+              // пропорциональна (w-auto). Скейл = h / sysViewBox.h. Дверной SVG
+              // тоже скейлится по своему viewBox; внутри него реальная дверь
+              // занимает только доля dRect/vbDoor. Контейнер двери выбираем
+              // так, чтобы при scale_d = sysDoorPxH / dRect.h дверь по высоте
+              // совпала, а контейнер сохранил аспект viewBox дверного SVG —
+              // тогда meet-рендер не letterbox-ит и контуры не обрезаются.
+              const sysVB = sysSvg ? getSvgViewBox(sysSvg) : null;
+              const sysGroup = sysSvg ? extractSystemGroup(sysSvg) : null;
+              const sysInner = sysGroup?.inner ?? sysSvg ?? null;
+              const sysDoor = sysInner ? findDoorCenters(sysInner)[0] : null;
+              const dSvg = toShow[1]?.svgContent;
+              const dVB = dSvg && dSvg !== sysSvg ? getSvgViewBox(dSvg) : null;
+              const dGroup = dSvg && dSvg !== sysSvg ? extractSystemGroup(dSvg) : null;
+              const dInner = dGroup?.inner ?? (dSvg && dSvg !== sysSvg ? dSvg : null);
+              const dRect = dInner ? findDoorCenters(dInner)[0] : null;
+              let containerPxW = 0;
+              let containerPxH = 0;
+              if (sysDoor && sysVB && dVB && dRect && dRect.h > 0 && sysVB.h > 0) {
+                const scaleSys = h / sysVB.h;
+                const sysDoorPxH = sysDoor.h * scaleSys;
+                const scaleD = sysDoorPxH / dRect.h;
+                containerPxW = dVB.w * scaleD;
+                containerPxH = dVB.h * scaleD;
+              }
 
               return toShow.map((scheme, idx) => {
-                const rendered = renderSvgWithDimensions(scheme.svgContent, initialData.fullWidth, initialData.height, initialData.doorWidth, 1, idx);
+                const reusedFromSystem = idx > 0 && scheme.svgContent === sysSvg;
+                const effIdx = reusedFromSystem ? 0 : idx;
+                const rendered = renderSvgWithDimensions(scheme.svgContent, initialData.fullWidth, initialData.height, initialData.doorWidth, 1, effIdx);
                 const displayLabel =
                   scheme.label?.trim() ||
                   (scheme.ratioType ? labelFallbacks[scheme.ratioType] : undefined) ||
                   "Схема";
+
+                // Слот «Вид двери» с отдельным дверным SVG — рендерим в боксе
+                // ровно того же пиксельного размера, что одна дверь в системе.
+                // Свободное пространство по высоте слота — это отступы (padding).
+                const isDoorSlot = idx === 1 && !reusedFromSystem && containerPxW > 0 && containerPxH > 0;
+
                 return (
                   <div
                     key={idx}
-                    className="cursor-pointer hover:opacity-80 transition-opacity flex flex-col items-center"
+                    className={`cursor-pointer hover:opacity-80 transition-opacity flex flex-col items-center ${colSpanByIndex(idx)}`}
                     onClick={() => setSchemeModal(rendered)}
                   >
                     <p className="text-[10px] font-semibold text-muted-foreground text-center mb-2">{displayLabel}</p>
-                    <div
-                      dangerouslySetInnerHTML={{ __html: rendered }}
-                      style={{ height: h }}
-                      className="[&>svg]:h-full [&>svg]:w-auto"
-                    />
+                    {isDoorSlot ? (
+                      <div className="flex items-center justify-center w-full" style={{ height: h }}>
+                        <div
+                          dangerouslySetInnerHTML={{ __html: rendered }}
+                          style={{ width: containerPxW, height: containerPxH }}
+                          className="[&>svg]:w-full [&>svg]:h-full"
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        dangerouslySetInnerHTML={{ __html: rendered }}
+                        style={{ height: h }}
+                        className="[&>svg]:h-full [&>svg]:w-auto"
+                      />
+                    )}
                   </div>
                 );
               });
@@ -634,6 +1071,35 @@ export function ProposalPreview({
         </div>
       </div>
 
+      {/* Свободные заметки — 3 поля. Пустые поля в PDF превращаются в пустые
+          линии под рукописный текст после печати. */}
+      <div className="rounded-xl border border-border p-4">
+        <p className="text-[10px] font-bold text-brand-600 uppercase tracking-wider mb-3">
+          Заметки на КП (3 строки)
+        </p>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          Можно вписать сейчас или оставить пустым — в PDF на их месте появятся пустые
+          линии для рукописной заметки.
+        </p>
+        <div className="space-y-2">
+          {[0, 1, 2].map((i) => (
+            <Input
+              key={i}
+              placeholder={`Строка ${i + 1}`}
+              value={data.notes?.[i] ?? ""}
+              onChange={(e) => {
+                const next = [...(data.notes ?? ["", "", ""])];
+                while (next.length < 3) next.push("");
+                next[i] = e.target.value;
+                update({ notes: next });
+              }}
+              className="h-8 text-sm"
+              autoComplete="one-time-code"
+            />
+          ))}
+        </div>
+      </div>
+
       {/* Download button */}
       <div className="flex items-center justify-end gap-3 pt-2">
         <PDFDownloadBtn
@@ -654,9 +1120,22 @@ export function ProposalPreview({
           components={data.components}
           totalPrice={data.totalPrice}
           customServices={data.customServices}
+          notes={data.notes}
           variant={data.variant}
+          partnerCompanyName={data.partnerCompanyName ?? myCompany?.name ?? null}
+          partnerLogoUrl={
+            data.partnerCompanyName
+              ? null /* при редактировании партнёрской карточки логотип не нужен — в PDF и так текст */
+              : myCompany?.logoUrl
+              ? (myCompany.logoUrl.startsWith("http")
+                  ? myCompany.logoUrl
+                  : `${typeof window !== "undefined" ? window.location.origin : ""}${myCompany.logoUrl}`)
+              : null
+          }
+          onBeforeDownload={onBeforePdfDownload}
           schemeSvgs={schemeSvgUrls}
           schemeSizes={schemeSizes}
+          doorBoxRatio={doorBoxRatio ?? undefined}
           glassImageUrl={data.glassImageUrl}
           railImageUrl={data.variant?.railImageUrl ? (data.variant.railImageUrl.startsWith("http") ? data.variant.railImageUrl : `${window.location.origin}${data.variant.railImageUrl}`) : undefined}
         />

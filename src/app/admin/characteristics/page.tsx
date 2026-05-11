@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Logo } from "@/components/shared/Logo";
+import { CompanyBrand } from "@/components/shared/CompanyBrand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -512,7 +512,7 @@ function CharacteristicsPageInner() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-border/40 flex items-center justify-between px-6">
         <div className="flex items-center gap-4">
-          <Logo size="sm" />
+          <CompanyBrand size="sm" />
           <span className="text-sm font-semibold text-brand-600">Админ-панель</span>
         </div>
         <Link href="/admin">

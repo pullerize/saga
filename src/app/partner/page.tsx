@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { Logo } from "@/components/shared/Logo";
+import { CompanyBrand } from "@/components/shared/CompanyBrand";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, LogOut } from "lucide-react";
@@ -26,7 +26,7 @@ export default function PartnerDashboard() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-border/40 flex items-center justify-between px-6">
         <div className="flex items-center gap-4">
-          <Logo size="sm" />
+          <CompanyBrand size="sm" />
           <span className="text-sm font-semibold text-brand-600">Кабинет</span>
         </div>
         <Button

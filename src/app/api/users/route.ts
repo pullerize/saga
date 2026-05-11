@@ -5,6 +5,17 @@ import { requireRole } from "@/lib/auth-helpers";
 
 const ALLOWED_CREATE_ROLES = ["PARTNER", "MANAGER", "ADMIN"];
 const ALLOWED_STATUSES = ["ACTIVE", "BLOCKED", "PENDING"];
+const DEFAULT_COMPANY_NAME = "Saga Group";
+
+/** Найти компанию «Saga Group», создать если не существует. Используется как
+ *  компания по умолчанию для администраторов и внутренних менеджеров. */
+async function ensureDefaultCompany() {
+  const existing = await prisma.company.findUnique({
+    where: { name: DEFAULT_COMPANY_NAME },
+  });
+  if (existing) return existing;
+  return prisma.company.create({ data: { name: DEFAULT_COMPANY_NAME } });
+}
 
 export async function GET() {
   const { error } = await requireRole("ADMIN");
@@ -20,6 +31,7 @@ export async function GET() {
       role: true,
       status: true,
       companyName: true,
+      companyId: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -32,7 +44,7 @@ export async function POST(req: Request) {
   if (error) return error;
 
   const body = await req.json();
-  const { email, password, name, phone, role, status, companyName } = body;
+  const { email, password, name, phone, role, status, companyId } = body;
 
   if (!email || !password || !name || !role) {
     return NextResponse.json(
@@ -45,6 +57,27 @@ export async function POST(req: Request) {
   }
   if (status && !ALLOWED_STATUSES.includes(status)) {
     return NextResponse.json({ error: "Недопустимый статус" }, { status: 400 });
+  }
+
+  // Админ по умолчанию относится к компании «Saga Group»: если companyId не
+  // передан или не существует — берём (или создаём) дефолтную компанию.
+  // Для прочих ролей companyId обязателен.
+  let company;
+  if (role === "ADMIN") {
+    if (companyId) {
+      company = await prisma.company.findUnique({ where: { id: companyId } });
+    }
+    if (!company) {
+      company = await ensureDefaultCompany();
+    }
+  } else {
+    if (!companyId) {
+      return NextResponse.json({ error: "Выберите компанию" }, { status: 400 });
+    }
+    company = await prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) {
+      return NextResponse.json({ error: "Компания не найдена" }, { status: 400 });
+    }
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -64,7 +97,8 @@ export async function POST(req: Request) {
       phone: phone || null,
       role,
       status: status || "ACTIVE",
-      companyName: companyName || null,
+      companyId: company.id,
+      companyName: company.name,
     },
     select: {
       id: true,
@@ -74,6 +108,7 @@ export async function POST(req: Request) {
       role: true,
       status: true,
       companyName: true,
+      companyId: true,
       createdAt: true,
       updatedAt: true,
     },

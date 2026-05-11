@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Font,
 } from "@react-pdf/renderer";
+import { glassDescriptions } from "@/lib/calculations/media";
 
 /* ── Fonts ── */
 Font.register({
@@ -46,9 +47,32 @@ export interface CalculationPDFProps {
   } | null;
   schemeSvgs?: string[];
   schemeSizes?: Array<{ w: number; h: number }>;
+  /**
+   * Соотношения «одна дверь / весь viewBox» в системном и дверном SVG.
+   * Если задано — слот «Вид двери» рендерится так, чтобы реальная дверь
+   * внутри его SVG совпала по визуальным размерам с одной дверью в «Вид
+   * системы». Подписи/размеры вокруг двери в дверном SVG учитываются через
+   * `door`, а пустое место по высоте ячейки превращается в отступ сверху.
+   */
+  doorBoxRatio?: {
+    sys: { w: number; h: number };
+    door: { w: number; h: number };
+  };
   glassImageUrl?: string;
   railImageUrl?: string;
   date?: string;
+  /**
+   * До 3 свободных строк после блока «Общая сумма». Если значение пустое —
+   * рисуется пустая линия для рукописной заметки после печати.
+   */
+  notes?: string[];
+  /**
+   * Логотип компании партнёра (если PDF готовит сторонняя компания, не Saga Group).
+   * При наличии в шапке каждой страницы рядом с «SAGA» появляется блок
+   * «лого партнёра × SAGA».
+   */
+  partnerLogoUrl?: string | null;
+  partnerCompanyName?: string | null;
 }
 
 /* ── Brand palette ── */
@@ -149,6 +173,18 @@ const s = StyleSheet.create({
   totalValue: { fontSize: 13, fontFamily: "Roboto", fontWeight: 700, color: WHITE },
   totalCurrency: { fontSize: 9, color: GOLD_LIGHT, marginLeft: 4 },
 
+  /* Заметки — 3 пустые/заполняемые линии после блока с итогом */
+  notesBlock: { marginBottom: 22 },
+  noteLine: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: GRAY,
+    minHeight: 18,
+    marginBottom: 12,
+    justifyContent: "flex-end",
+    paddingBottom: 3,
+  },
+  noteText: { fontSize: 9, color: TEXT, lineHeight: 1.3 },
+
   /* QR */
   qrRow: { flexDirection: "row", marginBottom: 22 },
   qrBlock: { width: "48%", flexDirection: "row", alignItems: "center", padding: 8 },
@@ -195,12 +231,32 @@ function formatDate(iso?: string): string {
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" });
 }
 
-/* ── Shared fixed header ── */
-function FixedHeader({ systemName, date }: { systemName: string; date: string }) {
+/* ── Shared fixed header ──
+   Если передано имя сторонней компании партнёра — слева рисуем
+   «<Имя компании> × Saga Group», иначе только «SAGA». */
+function FixedHeader({
+  systemName,
+  date,
+  partnerCompanyName,
+}: {
+  systemName: string;
+  date: string;
+  partnerCompanyName?: string | null;
+}) {
   return (
     <View style={s.fixedHeader} fixed>
       <View style={s.fixedHeaderBar}>
-        <Text style={s.fixedHeaderLogo}>SAGA</Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          {partnerCompanyName ? (
+            <>
+              <Text style={[s.fixedHeaderLogo, { fontWeight: 400, letterSpacing: 1 }]}>{partnerCompanyName}</Text>
+              <Text style={{ marginHorizontal: 6, color: GOLD_LIGHT, fontSize: 9 }}>×</Text>
+              <Text style={[s.fixedHeaderLogo, { fontWeight: 400, letterSpacing: 1 }]}>Saga Group</Text>
+            </>
+          ) : (
+            <Text style={s.fixedHeaderLogo}>SAGA</Text>
+          )}
+        </View>
         <View style={s.fixedHeaderRight}>
           <Text style={s.fixedHeaderText}>{systemName}</Text>
           <Text style={s.fixedHeaderText}>{date}</Text>
@@ -212,12 +268,13 @@ function FixedHeader({ systemName, date }: { systemName: string; date: string })
 }
 
 /* ── Shared fixed footer ── */
-function Footer() {
+function Footer({ managerName, managerPhone }: { managerName?: string; managerPhone?: string }) {
+  const managerLine = [managerName?.trim(), managerPhone?.trim()].filter(Boolean).join(" · ");
   return (
     <View style={s.footer} fixed>
       <View style={s.footerGold} />
       <View style={s.footerBar}>
-        <Text style={s.footerText}>saga-group.uz</Text>
+        <Text style={s.footerText}>{managerLine || ""}</Text>
         <Text style={s.footerBrand}>SAGA</Text>
         <Text style={s.footerText} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
       </View>
@@ -234,8 +291,16 @@ export default function CalculationPDF(props: CalculationPDFProps) {
     fullWidth, height, doorWidth, openWidth,
     glassType, shotlanType,
     components, totalPrice,
-    services, customServices, variant, schemeSvgs, schemeSizes, glassImageUrl, railImageUrl, date,
+    services, customServices, variant, schemeSvgs, schemeSizes, glassImageUrl, railImageUrl, date, notes,
+    partnerLogoUrl, partnerCompanyName, doorBoxRatio,
   } = props;
+  // Имя сторонней компании показываем только если это не Saga Group.
+  // (logo URL остаётся в пропсах для совместимости, но в шапке мы выводим имя.)
+  void partnerLogoUrl;
+  const isExternal =
+    !!partnerCompanyName &&
+    partnerCompanyName.trim().toLowerCase() !== "saga group";
+  const headerCompanyName = isExternal ? partnerCompanyName : undefined;
 
   const formattedDate = formatDate(date);
   const servicesTotal = services?.reduce((a, sv) => a + sv.price, 0) ?? 0;
@@ -248,18 +313,20 @@ export default function CalculationPDF(props: CalculationPDFProps) {
   ];
   if (openWidth) params.push({ label: "Проём", value: `${openWidth} мм` });
   params.push({ label: "Стекло", value: glassType });
-  if (shotlanType && shotlanType !== "Без шотланок") params.push({ label: "Шотланки", value: shotlanType });
+  params.push({ label: "Шотланки", value: shotlanType && shotlanType !== "Без шотланок" ? shotlanType : "отсутствуют" });
+  // Доп. услуги (Боковая обшивка / Закладные / прочее) показываем только
+  // в блоке «Спецификация» — здесь, в параметрах, их не дублируем.
 
   return (
     <Document title={`SAGA — ${systemName} — ${customerName}`} author="SAGA Group">
 
       {/* ═══════════════ PAGE 1: Cover ═══════════════ */}
       <Page size="A4" style={s.page}>
-        <FixedHeader systemName={systemName} date={formattedDate} />
+        <FixedHeader systemName={systemName} date={formattedDate} partnerCompanyName={headerCompanyName} />
 
         <View style={s.body}>
           {/* Hero title */}
-          <View style={{ marginBottom: 28, paddingTop: 8 }}>
+          <View style={{ marginBottom: 18, paddingTop: 0 }}>
             <Text style={{ fontSize: 22, fontFamily: "Roboto", fontWeight: 700, color: BRAND, letterSpacing: 0.5 }}>
               Коммерческое предложение
             </Text>
@@ -291,31 +358,61 @@ export default function CalculationPDF(props: CalculationPDFProps) {
             ) : null}
           </View>
 
-          {/* System params — full width dark block */}
-          <View style={{ backgroundColor: BRAND, borderRadius: 8, paddingVertical: 16, paddingHorizontal: 22, marginBottom: 24 }}>
-            <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD_LIGHT, textTransform: "uppercase", letterSpacing: 2, marginBottom: 12 }}>
+          {/* System params — full width dark block. Каждый параметр — карточка
+              в сетке: label сверху (мелким золотым), value снизу (крупным белым).
+              Это даёт одинаковую высоту строк независимо от длины меток/значений. */}
+          <View style={{ backgroundColor: BRAND, borderRadius: 8, paddingVertical: 18, paddingHorizontal: 22, marginBottom: 24 }}>
+            <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD_LIGHT, textTransform: "uppercase", letterSpacing: 2, marginBottom: 14 }}>
               Параметры системы
             </Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6 }}>
               {params.map((p) => (
-                <View key={p.label} style={{ width: "50%", paddingVertical: 5, paddingHorizontal: 5 }}>
-                  <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-                    <Text style={{ fontSize: 7.5, color: GOLD_LIGHT, width: 70, textTransform: "uppercase", letterSpacing: 0.3 }}>{p.label}</Text>
-                    <Text style={{ fontSize: 10, fontFamily: "Roboto", fontWeight: 700, color: WHITE, flex: 1 }}>{p.value}</Text>
-                  </View>
+                <View
+                  key={p.label}
+                  style={{
+                    width: "33.3333%",
+                    paddingHorizontal: 6,
+                    paddingVertical: 6,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 7,
+                      fontFamily: "Roboto",
+                      fontWeight: 700,
+                      color: GOLD_LIGHT,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.6,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {p.label}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      fontFamily: "Roboto",
+                      fontWeight: 700,
+                      color: WHITE,
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {p.value}
+                  </Text>
                 </View>
               ))}
             </View>
           </View>
 
-          {/* Variant cards — premium style */}
+          {/* Variant cards — premium style. wrap={false} держит весь блок
+              «Преимущества системы» (заголовок + 3 карточки) на одной странице. */}
           {variant && variant.items.length > 0 && (
-            <View style={{ marginBottom: 20 }}>
+            <View wrap={false} style={{ marginBottom: 20 }}>
               {/* Section header with golden rule */}
               <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
                 <View style={{ height: 1, width: 18, backgroundColor: GOLD, marginRight: 8 }} />
                 <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: 2.5 }}>
-                  {variant.variantName}
+                  Преимущества системы
                 </Text>
                 <View style={{ height: 1, flex: 1, backgroundColor: BORDER, marginLeft: 8 }} />
               </View>
@@ -334,9 +431,9 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                         borderRadius: 6,
                         borderWidth: 0.5,
                         borderColor: BORDER,
-                        paddingTop: 18,
-                        paddingHorizontal: 14,
-                        paddingBottom: 16,
+                        paddingTop: 14,
+                        paddingHorizontal: 12,
+                        paddingBottom: 14,
                         alignItems: "center",
                         position: "relative",
                       }}
@@ -369,40 +466,47 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                         {num}
                       </Text>
 
-                      {/* Icon with gold-tinted circular backdrop */}
+                      {/* Картинка-визуал (компактнее, чтобы влезали все 3 карточки) */}
                       <View
                         style={{
-                          width: 64,
-                          height: 64,
-                          borderRadius: 32,
+                          width: "100%",
+                          height: 90,
+                          borderRadius: 6,
                           backgroundColor: IVORY,
                           borderWidth: 0.5,
                           borderColor: GOLD_LIGHT,
                           alignItems: "center",
                           justifyContent: "center",
-                          marginBottom: 12,
+                          marginTop: 4,
+                          marginBottom: 10,
+                          overflow: "hidden",
                         }}
                       >
                         {item.iconUrl ? (
                           <Image
                             src={item.iconUrl}
-                            style={{ width: 42, height: 42, borderRadius: 4 }}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "contain",
+                            }}
                           />
                         ) : (
-                          <View style={{ width: 42, height: 42, borderRadius: 4, backgroundColor: BORDER }} />
+                          <View style={{ width: 56, height: 56, borderRadius: 6, backgroundColor: BORDER }} />
                         )}
                       </View>
 
-                      {/* Title */}
+                      {/* Заголовок преимущества */}
                       <Text
                         style={{
-                          fontSize: 9.5,
+                          fontSize: 9,
                           fontFamily: "Roboto",
                           fontWeight: 700,
                           color: TEXT,
                           textAlign: "center",
-                          marginBottom: 6,
+                          marginBottom: 5,
                           letterSpacing: 0.2,
+                          lineHeight: 1.2,
                         }}
                       >
                         {item.title}
@@ -412,21 +516,21 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                       <View
                         style={{
                           height: 1,
-                          width: 22,
+                          width: 20,
                           backgroundColor: GOLD,
-                          marginBottom: 8,
+                          marginBottom: 5,
                           opacity: 0.6,
                         }}
                       />
 
-                      {/* Description */}
+                      {/* Описание */}
                       {item.description ? (
                         <Text
                           style={{
-                            fontSize: 7.5,
+                            fontSize: 7,
                             color: TEXT_SEC,
                             textAlign: "center",
-                            lineHeight: 1.55,
+                            lineHeight: 1.4,
                           }}
                         >
                           {item.description}
@@ -447,80 +551,123 @@ export default function CalculationPDF(props: CalculationPDFProps) {
           </View>
         </View>
 
-        <Footer />
+        <Footer managerName={managerName} managerPhone={managerPhone} />
       </Page>
 
       {/* ═══════════════ PAGE 2: Schemes + Materials ═══════════════ */}
       {schemeSvgs && schemeSvgs.filter(Boolean).length > 0 && (
         <Page size="A4" style={s.schemePage}>
-          <FixedHeader systemName={systemName} date={formattedDate} />
+          <FixedHeader systemName={systemName} date={formattedDate} partnerCompanyName={headerCompanyName} />
 
-          {/* Top 70%: up to 4 schemes in 2 rows
-              Row 1 (70% of schemes area): "Вид системы" + "Вид двери" + "Вид сбоку"
-              Row 2 (30% of schemes area): "Вид сверху" */}
+          {/* Top 70%: 3 схемы в 2 строки.
+              Row 1 (70% площади): «Вид системы» (60% ширины) + «Вид двери» (40% ширины)
+              Row 2 (30% площади): «Вид сверху» во всю ширину */}
           <View wrap={false} style={{ paddingHorizontal: 30, paddingTop: 10, flex: 7, justifyContent: "center" }}>
             {(() => {
-              const labels = ["Вид системы", "Вид двери", "Вид сбоку", "Вид сверху"];
+              const labels = ["Вид системы", "Вид двери", "Вид сверху"];
               const items = schemeSvgs.map((src, i) => ({
                 src,
                 size: schemeSizes?.[i],
                 label: labels[i] ?? "Схема",
               }));
-              const row1 = [items[0], items[1], items[2]].filter((x) => x && !!x.src);
-              const row2 = [items[3]].filter((x) => x && !!x.src);
+              const row1 = [items[0], items[1]].filter((x) => x && !!x.src);
+              const row2 = [items[2]].filter((x) => x && !!x.src);
               const hasRow1 = row1.length > 0;
               const hasRow2 = row2.length > 0;
               if (!hasRow1 && !hasRow2) return null;
 
               const maxRowW = 500;
               const colGap = 18;
-              const rowGap = 14;
-              // Total vertical budget for schemes area. Must fit inside ~70% of an A4
-              // page after subtracting paddings, labels above each row and the row gap —
-              // otherwise @react-pdf/renderer pushes the overflow onto blank extra pages.
+              const rowGap = 24;
+              // Бюджет высоты под все схемы — должен умещаться в ~70% страницы A4
+              // (≈ 513pt при flex:7 / flex:3 и стандартных полях). Подписи рядов и
+              // paddingTop добавляются сверху, поэтому totalH должен быть заметно
+              // меньше, иначе нижний блок «Стекло + Рельсовая система» вытесняется
+              // на следующую страницу.
               const totalH = 440;
-              const row1H = hasRow1 && hasRow2 ? totalH * 0.7 - rowGap / 2
+              const row1H = hasRow1 && hasRow2 ? totalH * 0.55 - rowGap / 2
                 : hasRow1 ? totalH
                 : 0;
-              const row2H = hasRow2 && hasRow1 ? totalH * 0.3 - rowGap / 2
+              const row2H = hasRow2 && hasRow1 ? totalH * 0.45 - rowGap / 2
                 : hasRow2 ? totalH
                 : 0;
 
-              function renderRow(row: typeof items, maxH: number, key: string, fillWidth = false) {
-                const ratios = row.map((p) =>
-                  p.size?.w && p.size?.h ? p.size.w / p.size.h : 0.6
-                );
-                const sumR = ratios.reduce((a, b) => a + b, 0);
-                const totalGap = colGap * (row.length - 1);
-                const h = Math.min((maxRowW - totalGap) / sumR, maxH);
+              // Row 1: «Вид системы» и «Вид двери» с ОДИНАКОВОЙ высотой row1.
+              // Если задан doorBoxRatio — выходные размеры дверной картинки
+              // подобраны так, чтобы реальная дверь внутри её SVG совпала
+              // ПО ВЫСОТЕ И ПО ШИРИНЕ с одной дверью внутри «Вид системы».
+              //   • doorImgH = sysH × sys.h / door.h
+              //   • doorImgW = sysW × sys.w / door.w
+              // Аспект дверной картинки получается отличным от натурального
+              // аспекта PNG — react-pdf слегка стретчит изображение по одной
+              // из осей. Чтобы подписи "1999 мм"/"666 мм" не казались
+              // мельче, шрифт у дверного слота уже увеличен на этапе SVG
+              // (fontMul=9 в renderSvgWithDimensions).
+              const useDoorRatio =
+                !!doorBoxRatio &&
+                doorBoxRatio.sys.w > 0 && doorBoxRatio.sys.h > 0 &&
+                doorBoxRatio.door.w > 0 && doorBoxRatio.door.h > 0;
+              const wRel = useDoorRatio ? doorBoxRatio!.sys.w / doorBoxRatio!.door.w : 1;
+              const hRel = useDoorRatio ? doorBoxRatio!.sys.h / doorBoxRatio!.door.h : 1;
+              const r1Aspects = row1.map((p, i) => {
+                if (i === 1 && useDoorRatio) {
+                  // Аспект дверной ячейки = sysAspect × wRel/hRel.
+                  const sysAspect =
+                    row1[0]?.size?.w && row1[0]?.size?.h ? row1[0]!.size!.w / row1[0]!.size!.h : 1;
+                  return sysAspect * (wRel / hRel);
+                }
+                return p.size?.w && p.size?.h ? p.size.w / p.size.h : 1;
+              });
+              const r1SumR = r1Aspects.reduce((a, b) => a + b, 0) || 1;
+              const r1Gap = colGap * Math.max(0, row1.length - 1);
+              const r1H = Math.min((maxRowW - r1Gap) / r1SumR, row1H);
+              const r1Widths = r1Aspects.map((r) => Math.round(r1H * r));
+              const r1TotalW = r1Widths.reduce((a, b) => a + b, 0) + r1Gap;
+              const sysW = r1Widths[0] ?? 0;
+              const sysH = Math.round(r1H);
+              const doorImgH = useDoorRatio ? Math.round(sysH * hRel) : sysH;
+              const doorImgW = useDoorRatio ? Math.round(sysW * wRel) : (r1Widths[1] ?? 0);
 
+              // Row 2 (вид сверху): по ширине = «Вид системы», размещён строго ПОД ним.
+              // Высота — естественная, чтобы шрифт внутри не сплющивался.
+              const r2Aspect =
+                row2[0]?.size?.w && row2[0]?.size?.h ? row2[0]!.size!.w / row2[0]!.size!.h : 6;
+              const r2NaturalH = (sysW || maxRowW) / r2Aspect;
+              const r2DrawW = sysW || maxRowW;
+              const r2DrawH = Math.min(r2NaturalH, row2H);
+
+              function renderRow1(key: string) {
                 return (
                   <View
                     key={key}
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "center",
-                      alignItems: "flex-end",
-                    }}
+                    style={{ flexDirection: "row", justifyContent: "center", alignItems: "flex-end" }}
                   >
-                    {row.map((p, i) => {
-                      // When fillWidth is on (single-element row like "Top view") we reserve
-                      // the full row box but keep the image's aspect ratio via objectFit so
-                      // embedded labels don't get distorted.
-                      const baseW = Math.round(h * ratios[i]);
-                      const isFill = fillWidth && row.length === 1;
-                      const w = isFill ? Math.round(maxRowW) : baseW;
-                      const imgH = isFill ? Math.round(maxH) : Math.round(h);
+                    {row1.map((p, i) => {
+                      const isDoor = i === 1 && useDoorRatio;
+                      const cellW = r1Widths[i];
+                      const imgW = isDoor ? doorImgW : cellW;
+                      const imgH = isDoor ? doorImgH : sysH;
                       return (
                         <View
                           key={i}
                           style={{ alignItems: "center", marginLeft: i === 0 ? 0 : colGap }}
                         >
                           <Text style={s.schemeLabel}>{p.label}</Text>
-                          <Image
-                            src={p.src}
-                            style={{ width: w, height: imgH, objectFit: isFill ? "contain" : undefined }}
-                          />
+                          {/* Контейнер высотой row1, картинка вертикально по
+                              центру: если дверная картинка выше row1 (есть
+                              подписи сверху/снизу), она симметрично
+                              «выпирает» вверх и вниз, оставаясь по центру
+                              со схемой «Вид системы». */}
+                          <View
+                            style={{
+                              width: cellW,
+                              height: sysH,
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Image src={p.src} style={{ width: imgW, height: imgH }} />
+                          </View>
                         </View>
                       );
                     })}
@@ -528,11 +675,35 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                 );
               }
 
+              function renderRow2(key: string) {
+                const p = row2[0];
+                if (!p) return null;
+                return (
+                  <View
+                    key={key}
+                    style={{ flexDirection: "row", justifyContent: "center" }}
+                  >
+                    {/* Контейнер той же ширины, что и row 1, центрирован так же.
+                        Внутри row 2 выравнивается влево, чтобы «Вид сверху»
+                        оказался строго под «Вид системы». */}
+                    <View style={{ width: r1TotalW, flexDirection: "row", alignItems: "flex-end" }}>
+                      <View style={{ width: sysW, alignItems: "center" }}>
+                        <Text style={s.schemeLabel}>{p.label}</Text>
+                        <Image
+                          src={p.src}
+                          style={{ width: r2DrawW, height: Math.round(r2DrawH) }}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                );
+              }
+
               return (
                 <>
-                  {hasRow1 && renderRow(row1, row1H, "r1")}
+                  {hasRow1 && renderRow1("r1")}
                   {hasRow1 && hasRow2 && <View style={{ height: rowGap }} />}
-                  {hasRow2 && renderRow(row2, row2H, "r2", /* fillWidth */ true)}
+                  {hasRow2 && renderRow2("r2")}
                 </>
               );
             })()}
@@ -549,11 +720,36 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                 {"Стекло: " + glassType}
               </Text>
               {glassImageUrl ? (
-                <Image src={glassImageUrl} style={{ width: "100%", maxHeight: 140, objectFit: "contain", borderRadius: 6 }} />
-              ) : (
-                <View style={{ width: "100%", height: 140, backgroundColor: IVORY, borderRadius: 6, borderWidth: 0.5, borderColor: BORDER, justifyContent: "center", alignItems: "center" }}>
-                  <Text style={{ fontSize: 9, color: GRAY }}>Фото стекла</Text>
+                <View
+                  style={{
+                    width: "100%",
+                    height: 160,
+                    borderRadius: 10,
+                    borderWidth: 0.5,
+                    borderColor: BORDER,
+                    overflow: "hidden",
+                    backgroundColor: IVORY,
+                  }}
+                >
+                  <Image
+                    src={glassImageUrl}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      objectPosition: "center center",
+                    }}
+                  />
                 </View>
+              ) : (
+                <View style={{ width: "100%", height: 140, backgroundColor: IVORY, borderRadius: 10, borderWidth: 0.5, borderColor: BORDER, justifyContent: "center", alignItems: "flex-start" }}>
+                  <Text style={{ fontSize: 9, color: GRAY, marginLeft: 12 }}>Фото стекла</Text>
+                </View>
+              )}
+              {glassDescriptions[glassType] && (
+                <Text style={{ fontSize: 8, color: TEXT_SEC, marginTop: 8, lineHeight: 1.4 }}>
+                  {glassDescriptions[glassType]}
+                </Text>
               )}
             </View>
             {/* Rail */}
@@ -562,22 +758,42 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                 Рельсовая система
               </Text>
               {railImageUrl ? (
-                <Image src={railImageUrl} style={{ width: "100%", maxHeight: 140, objectFit: "contain", borderRadius: 6 }} />
+                <View
+                  style={{
+                    width: "100%",
+                    height: 160,
+                    borderRadius: 10,
+                    borderWidth: 0.5,
+                    borderColor: BORDER,
+                    overflow: "hidden",
+                    backgroundColor: IVORY,
+                  }}
+                >
+                  <Image
+                    src={railImageUrl}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "contain",
+                      objectPosition: "center center",
+                    }}
+                  />
+                </View>
               ) : (
-                <View style={{ width: "100%", height: 140, backgroundColor: IVORY, borderRadius: 6, borderWidth: 0.5, borderColor: BORDER, justifyContent: "center", alignItems: "center" }}>
-                  <Text style={{ fontSize: 9, color: GRAY }}>Фото рельсы</Text>
+                <View style={{ width: "100%", height: 140, backgroundColor: IVORY, borderRadius: 10, borderWidth: 0.5, borderColor: BORDER, justifyContent: "center", alignItems: "flex-start" }}>
+                  <Text style={{ fontSize: 9, color: GRAY, marginLeft: 12 }}>Фото рельсы</Text>
                 </View>
               )}
             </View>
           </View>
 
-          <Footer />
+          <Footer managerName={managerName} managerPhone={managerPhone} />
         </Page>
       )}
 
       {/* ═══════════════ PAGE 3+: Specification ═══════════════ */}
       <Page size="A4" style={s.page}>
-        <FixedHeader systemName={systemName} date={formattedDate} />
+        <FixedHeader systemName={systemName} date={formattedDate} partnerCompanyName={headerCompanyName} />
 
         <View style={s.body}>
           {/* Components table — keep title + table header + first few rows glued
@@ -684,6 +900,40 @@ export default function CalculationPDF(props: CalculationPDFProps) {
               <Text style={s.totalValue}>{fmt(totalPrice + (customServices?.reduce((a, sv) => a + sv.price, 0) ?? 0))}</Text>
               <Text style={s.totalCurrency}> у.е.</Text>
             </View>
+            <Text
+              style={{
+                fontSize: 6.5,
+                color: GOLD_LIGHT,
+                opacity: 0.7,
+                marginTop: 8,
+                lineHeight: 1.4,
+              }}
+            >
+              Цена в валюте указана лишь для ознакомления. Оплата производится только в национальной
+              валюте страны по курсу центробанка на момент оплаты.
+            </Text>
+            <Text
+              style={{
+                fontSize: 6.5,
+                color: GOLD_LIGHT,
+                opacity: 0.85,
+                marginTop: 4,
+                lineHeight: 1.4,
+              }}
+            >
+              Коммерческое предложение действует в течение 14 дней с момента его генерации
+              {date ? ` (${formatDate(date)})` : ""}.
+            </Text>
+          </View>
+
+          {/* Заметки — 3 свободные строки. Если props.notes[i] заполнено — печатаем,
+              иначе оставляем пустую линию для рукописной заметки. */}
+          <View wrap={false} style={s.notesBlock}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={s.noteLine}>
+                <Text style={s.noteText}>{notes?.[i] ?? ""}</Text>
+              </View>
+            ))}
           </View>
 
           {/* QR + Signatures — placed immediately after the total block */}
@@ -718,7 +968,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
           </View>
         </View>
 
-        <Footer />
+        <Footer managerName={managerName} managerPhone={managerPhone} />
       </Page>
 
     </Document>

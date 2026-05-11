@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Logo } from "@/components/shared/Logo";
+import { CompanyBrand } from "@/components/shared/CompanyBrand";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,7 @@ import {
   Users,
   Settings,
   BarChart3,
+  Building2,
   Layers,
   Wrench,
   Tag,
@@ -44,12 +45,14 @@ const navGroups: NavGroup[] = [
       { href: "/admin/formulas", label: "Формулы", icon: FunctionSquare, description: "Формулы расчёта" },
       { href: "/admin/prices", label: "Цены", icon: Settings, description: "Цены компонентов" },
       { href: "/admin/variants", label: "Варианты", icon: LayoutGrid, description: "Иконки, схемы, описания" },
+      { href: "/admin/doors", label: "Двери", icon: LayoutGrid, description: "SVG двери под каждый тип шотланок" },
     ],
   },
   {
     title: "Управление",
     items: [
-      { href: "/admin/users", label: "Пользователи", icon: Users, description: "Управление партнёрами" },
+      { href: "/admin/companies", label: "Компании", icon: Building2, description: "Партнёрские компании и логотипы" },
+      { href: "/admin/users", label: "Пользователи", icon: Users, description: "Партнёры и менеджеры — добавляются в компании" },
     ],
   },
 ];
@@ -59,7 +62,7 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-border/40 flex items-center justify-between px-6">
         <div className="flex items-center gap-4">
-          <Logo size="sm" />
+          <CompanyBrand size="sm" />
           <span className="text-sm font-semibold text-brand-600">Админ-панель</span>
         </div>
         <Link href="/auth/login">

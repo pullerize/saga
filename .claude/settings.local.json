@@ -51,7 +51,14 @@
       "Bash(node -e ':*)",
       "Bash(grep -E \"next.config|.next$\")",
       "Bash(curl -s -o /dev/null -w \"status: %{http_code}\\\\n\" http://localhost:3000/admin)",
-      "Bash(curl -s -o /dev/null -w \"status: %{http_code}\\\\n\" http://localhost:3000/)"
+      "Bash(curl -s -o /dev/null -w \"status: %{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri 'http://localhost:3000/' -UseBasicParsing -TimeoutSec 30; \"STATUS: $\\($r.StatusCode\\), LEN: $\\($r.Content.Length\\)\" } catch { \"ERROR: $\\($_.Exception.Message\\)\" })",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}, %{size_download} bytes, %{time_total}s\\\\n\" --max-time 30 http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}, %{size_download} bytes, %{time_total}s\\\\n\" --max-time 60 http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" --max-time 5 http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" --max-time 3 http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" --max-time 10 http://localhost:3000/admin)"
     ]
   }
 }
