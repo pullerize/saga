@@ -29,9 +29,14 @@ cp -r public .next/standalone/public
 mkdir -p .next/standalone/.next
 cp -r .next/static .next/standalone/.next/static
 
-# Убедиться, что каталог загрузок существует и доступен для записи
+# Убедиться, что каталог загрузок существует и доступен для записи.
+# Рантайм пишет файлы в ./public/uploads (cwd процесса). А standalone-сервер
+# отдаёт статику из .next/standalone/public — поэтому НЕ копируем uploads, а
+# делаем symlink на единый каталог, иначе новые загрузки будут 404.
 mkdir -p public/uploads
 chmod 755 public/uploads
+rm -rf .next/standalone/public/uploads
+ln -s "$(pwd)/public/uploads" .next/standalone/public/uploads
 
 echo "==> pm2 restart saga"
 if pm2 describe saga >/dev/null 2>&1; then
