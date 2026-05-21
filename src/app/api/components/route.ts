@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuth, requireRole } from "@/lib/auth-helpers";
 
+// Не кэшируем: список компонентов меняется (новые из формул, правки цен) и должен
+// сразу отражаться в /admin/prices.
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const { error } = await requireAuth();
   if (error) return error;
   const items = await prisma.component.findMany({ orderBy: { sortOrder: "asc" } });
-  return NextResponse.json(items);
+  return NextResponse.json(items, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PUT(req: Request) {
