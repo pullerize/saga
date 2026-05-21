@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth-helpers";
 
+// Не кэшируем: видео/постеры систем и подсистем меняются в админке и должны
+// сразу подхватываться калькулятором/карточкой/админкой.
+export const dynamic = "force-dynamic";
+
 // GET — публичный список систем. Используется в гостевом каталоге на главной
 // странице (карточки систем для выбора), поэтому без авторизации.
 // Возвращаются ТОЛЬКО активные системы — неактивные/черновики скрыты от гостя.
@@ -16,7 +20,7 @@ export async function GET() {
       },
     },
   });
-  return NextResponse.json(systems);
+  return NextResponse.json(systems, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: Request) {
