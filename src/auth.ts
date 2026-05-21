@@ -28,6 +28,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   // Self-hosted за reverse-proxy: доверяем заголовку Host (X-Forwarded-Host).
   // Иначе Auth.js v5 по-умолчанию отклоняет всё что не равно NEXTAUTH_URL.
   trustHost: true,
+  // По умолчанию в production Auth.js использует `__Secure-` cookies (только https).
+  // Когда сайт временно открыт по http (например — http://IP пока DNS/SSL не готов),
+  // secure-куки не сохраняются, CSRF теряется. Явно отключаем secure если AUTH_URL
+  // не https. На проде с SSL — снова true.
+  useSecureCookies: (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "").startsWith("https://"),
   providers: [
     Credentials({
       credentials: {

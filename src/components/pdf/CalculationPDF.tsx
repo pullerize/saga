@@ -57,6 +57,10 @@ export interface CalculationPDFProps {
   doorBoxRatio?: {
     sys: { w: number; h: number };
     door: { w: number; h: number };
+    /** Доля padBottom от высоты SVG «вид системы» (свободное место под низом стекла). */
+    sysPadBFrac?: number;
+    /** То же для SVG «вид двери». */
+    doorPadBFrac?: number;
   };
   glassImageUrl?: string;
   railImageUrl?: string;
@@ -314,8 +318,18 @@ export default function CalculationPDF(props: CalculationPDFProps) {
   if (openWidth) params.push({ label: "Проём", value: `${openWidth} мм` });
   params.push({ label: "Стекло", value: glassType });
   params.push({ label: "Шотланки", value: shotlanType && shotlanType !== "Без шотланок" ? shotlanType : "отсутствуют" });
-  // Доп. услуги (Боковая обшивка / Закладные / прочее) показываем только
-  // в блоке «Спецификация» — здесь, в параметрах, их не дублируем.
+  // Боковая обшивка и Закладные — важные параметры: выводим их в блоке
+  // «Параметры» (значение — описание из доп. услуг, иначе «Да»/«—»). Остальные
+  // доп. услуги остаются только в блоке «Спецификация».
+  {
+    const svc = (name: string) =>
+      customServices?.find((s) => s.name.trim().toLowerCase() === name.toLowerCase());
+    const svcValue = (s?: { description: string; price: number }) =>
+      !s ? "—" : s.description?.trim() ? s.description.trim() : s.price > 0 ? "Да" : "—";
+    for (const name of ["Боковая обшивка", "Закладные"]) {
+      params.push({ label: name, value: svcValue(svc(name)) });
+    }
+  }
 
   return (
     <Document title={`SAGA — ${systemName} — ${customerName}`} author="SAGA Group">
@@ -326,7 +340,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
 
         <View style={s.body}>
           {/* Hero title */}
-          <View style={{ marginBottom: 18, paddingTop: 0 }}>
+          <View style={{ marginBottom: 10, paddingTop: 0 }}>
             <Text style={{ fontSize: 22, fontFamily: "Roboto", fontWeight: 700, color: BRAND, letterSpacing: 0.5 }}>
               Коммерческое предложение
             </Text>
@@ -337,7 +351,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
           </View>
 
           {/* Client + Manager — larger cards */}
-          <View style={{ flexDirection: "row", marginBottom: 24 }}>
+          <View style={{ flexDirection: "row", marginBottom: 16 }}>
             <View style={{ width: "48%", backgroundColor: IVORY, borderRadius: 8, padding: 18, borderWidth: 0.5, borderColor: BORDER, marginRight: "4%" }}>
               <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: 2, marginBottom: 12, paddingBottom: 6, borderBottomWidth: 0.5, borderBottomColor: BORDER }}>
                 Клиент
@@ -361,7 +375,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
           {/* System params — full width dark block. Каждый параметр — карточка
               в сетке: label сверху (мелким золотым), value снизу (крупным белым).
               Это даёт одинаковую высоту строк независимо от длины меток/значений. */}
-          <View style={{ backgroundColor: BRAND, borderRadius: 8, paddingVertical: 18, paddingHorizontal: 22, marginBottom: 24 }}>
+          <View style={{ backgroundColor: BRAND, borderRadius: 8, paddingVertical: 12, paddingHorizontal: 22, marginBottom: 14 }}>
             <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD_LIGHT, textTransform: "uppercase", letterSpacing: 2, marginBottom: 14 }}>
               Параметры системы
             </Text>
@@ -407,7 +421,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
           {/* Variant cards — premium style. wrap={false} держит весь блок
               «Преимущества системы» (заголовок + 3 карточки) на одной странице. */}
           {variant && variant.items.length > 0 && (
-            <View wrap={false} style={{ marginBottom: 20 }}>
+            <View wrap={false} style={{ marginBottom: 14 }}>
               {/* Section header with golden rule */}
               <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
                 <View style={{ height: 1, width: 18, backgroundColor: GOLD, marginRight: 8 }} />
@@ -561,8 +575,10 @@ export default function CalculationPDF(props: CalculationPDFProps) {
 
           {/* Top 70%: 3 схемы в 2 строки.
               Row 1 (70% площади): «Вид системы» (60% ширины) + «Вид двери» (40% ширины)
-              Row 2 (30% площади): «Вид сверху» во всю ширину */}
-          <View wrap={false} style={{ paddingHorizontal: 30, paddingTop: 10, flex: 7, justifyContent: "center" }}>
+              Row 2 (30% площади): «Вид сверху» во всю ширину
+              Блок схем прижат к верху и левому краю (justifyContent: flex-start
+              здесь и в renderRow1/renderRow2). */}
+          <View wrap={false} style={{ paddingLeft: 44, paddingRight: 44, paddingTop: 28, flex: 7, justifyContent: "flex-start" }}>
             {(() => {
               const labels = ["Вид системы", "Вид двери", "Вид сверху"];
               const items = schemeSvgs.map((src, i) => ({
@@ -576,9 +592,9 @@ export default function CalculationPDF(props: CalculationPDFProps) {
               const hasRow2 = row2.length > 0;
               if (!hasRow1 && !hasRow2) return null;
 
-              const maxRowW = 500;
-              const colGap = 18;
-              const rowGap = 24;
+              const maxRowW = 430;  // уменьшено под бо́льшие отступы контейнера (paddingLeft/Right 44)
+              const colGap = 24;
+              const rowGap = 80;
               // Бюджет высоты под все схемы — должен умещаться в ~70% страницы A4
               // (≈ 513pt при flex:7 / flex:3 и стандартных полях). Подписи рядов и
               // paddingTop добавляются сверху, поэтому totalH должен быть заметно
@@ -592,17 +608,16 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                 : hasRow2 ? totalH
                 : 0;
 
-              // Row 1: «Вид системы» и «Вид двери» с ОДИНАКОВОЙ высотой row1.
-              // Если задан doorBoxRatio — выходные размеры дверной картинки
-              // подобраны так, чтобы реальная дверь внутри её SVG совпала
-              // ПО ВЫСОТЕ И ПО ШИРИНЕ с одной дверью внутри «Вид системы».
-              //   • doorImgH = sysH × sys.h / door.h
-              //   • doorImgW = sysW × sys.w / door.w
-              // Аспект дверной картинки получается отличным от натурального
-              // аспекта PNG — react-pdf слегка стретчит изображение по одной
-              // из осей. Чтобы подписи "1999 мм"/"666 мм" не казались
-              // мельче, шрифт у дверного слота уже увеличен на этапе SVG
-              // (fontMul=9 в renderSvgWithDimensions).
+              // Row 1: «Вид системы» (слева) + «Вид двери» (справа), выровнены по
+              // НИЖНЕЙ кромке (alignItems: flex-end ниже).
+              // КАРТИНКА ДВЕРИ по высоте подогнана так, что её СТЕКЛО точно
+              // совпадает с высотой стекла одной двери внутри «Вида системы»:
+              //   doorImgH = sysH · (sys.h / door.h)
+              // — где sys.h/door.h доли стекла в их viewBox. Аналогично по
+              // ширине: doorImgW = sysW · (sys.w / door.w) = sysW · wRel.
+              // Остаточная разница padBottom-долей корректируется сдвигом вниз
+              // через translateY, чтобы низ стекла двери совпал с низом стекла
+              // системы.
               const useDoorRatio =
                 !!doorBoxRatio &&
                 doorBoxRatio.sys.w > 0 && doorBoxRatio.sys.h > 0 &&
@@ -611,7 +626,10 @@ export default function CalculationPDF(props: CalculationPDFProps) {
               const hRel = useDoorRatio ? doorBoxRatio!.sys.h / doorBoxRatio!.door.h : 1;
               const r1Aspects = row1.map((p, i) => {
                 if (i === 1 && useDoorRatio) {
-                  // Аспект дверной ячейки = sysAspect × wRel/hRel.
+                  // Ячейка двери — КОМПАКТНАЯ (= ширине картинки).
+                  // Так лейбл «Вид двери», сама картинка и подпись «700 мм»
+                  // ВСЕ центрируются по одной оси — центру картинки.
+                  // «2900 мм» (absolute справа) — не влияет на layout.
                   const sysAspect =
                     row1[0]?.size?.w && row1[0]?.size?.h ? row1[0]!.size!.w / row1[0]!.size!.h : 1;
                   return sysAspect * (wRel / hRel);
@@ -627,13 +645,25 @@ export default function CalculationPDF(props: CalculationPDFProps) {
               const sysH = Math.round(r1H);
               const doorImgH = useDoorRatio ? Math.round(sysH * hRel) : sysH;
               const doorImgW = useDoorRatio ? Math.round(sysW * wRel) : (r1Widths[1] ?? 0);
+              // Сдвиг дверной группы (Image + оба числа) вниз для точного
+              // совпадения нижнего края стекла двери с нижним краем стекла
+              // системы. Картинки выровнены по нижней кромке (flex-end), но
+              // padBottom-доли в их SVG РАЗНЫЕ — стекло двери получается на
+              // (doorImgH·doorPadBFrac − sysH·sysPadBFrac) px выше стекла
+              // системы. Компенсируем этим сдвигом.
+              const sysPadBFrac = doorBoxRatio?.sysPadBFrac ?? 0;
+              const doorPadBFrac = doorBoxRatio?.doorPadBFrac ?? 0;
+              const doorShiftDown = useDoorRatio
+                ? doorImgH * doorPadBFrac - sysH * sysPadBFrac
+                : 0;
 
-              // Row 2 (вид сверху): по ширине = «Вид системы», размещён строго ПОД ним.
-              // Высота — естественная, чтобы шрифт внутри не сплющивался.
+              // Row 2 (вид сверху): шире — на всю ширину первой строки
+              // (= «Вид системы» + colGap + «Вид двери»). Так картинка вида
+              // сверху в PDF не сжимается под узкую системную колонку.
               const r2Aspect =
                 row2[0]?.size?.w && row2[0]?.size?.h ? row2[0]!.size!.w / row2[0]!.size!.h : 6;
-              const r2NaturalH = (sysW || maxRowW) / r2Aspect;
-              const r2DrawW = sysW || maxRowW;
+              const r2DrawW = r1TotalW || maxRowW;
+              const r2NaturalH = r2DrawW / r2Aspect;
               const r2DrawH = Math.min(r2NaturalH, row2H);
 
               function renderRow1(key: string) {
@@ -644,29 +674,126 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                   >
                     {row1.map((p, i) => {
                       const isDoor = i === 1 && useDoorRatio;
+                      const isSystem = i === 0;
                       const cellW = r1Widths[i];
                       const imgW = isDoor ? doorImgW : cellW;
                       const imgH = isDoor ? doorImgH : sysH;
+                      // ОДИН стиль шрифта на все подписи размеров — и у «вида системы»,
+                      // и у «вида двери». Числа рисуются СНАРУЖИ картинки (как
+                      // PDF-Text), а не внутри SVG → размер не зависит от того, как
+                      // картинка масштабируется.
+                      const dimNumStyle = { fontSize: 8, fontFamily: "Roboto" as const, fontWeight: 700 as const, color: BRAND };
+                      // У «вида системы» число высоты — слева (повёрнуто на -90°),
+                      // у «вида двери» — справа (повёрнуто на +90°).
+                      const hNumOnLeft = isSystem;
+                      const showDims = isSystem || isDoor;
+                      const widthValue = isDoor ? doorWidth : fullWidth;
+                      // Сдвиг ВНИЗ дверной группы (Image + оба числа) — выравнивает
+                      // нижнюю кромку самой ДВЕРИ с нижней кромкой САМОЙ СИСТЕМЫ
+                      // внутри их SVG. Для системы сдвиг = 0.
+                      const shiftDown = isDoor ? doorShiftDown : 0;
+                      const shiftTransform = shiftDown !== 0 ? `translateY(${shiftDown})` : undefined;
+                      // Для «Вид двери» собираем компактную группу
+                      // [лейбл → картинка → подпись ширины] шириной imgW и
+                      // центрируем её внутри cellW. Тогда «Вид двери» сверху,
+                      // «700 мм» снизу и сама картинка стоят на ОДНОЙ
+                      // вертикальной оси — точно по центру картинки.
+                      // У «Вид системы» оставляем старую раскладку (лейбл по
+                      // ширине ячейки, картинка прижата к низу).
+                      if (isDoor) {
+                        // Структура — ЗЕРКАЛО системной ячейки (см. ниже):
+                        // [лейбл сверху] → [контейнер cellW × sysH, картинка
+                        // прижата к низу] → подпись «… мм» absolute под
+                        // картинкой. Так лейбл «Вид двери» оказывается на той
+                        // же высоте, что и лейбл «Вид системы», а нижние
+                        // кромки картинок выровнены по строке.
+                        // cellW = imgW (компактная), значит лейбл, картинка и
+                        // подпись ширины — на одной вертикальной оси.
+                        return (
+                          <View
+                            key={i}
+                            style={{ alignItems: "center", marginLeft: colGap }}
+                          >
+                            <Text style={s.schemeLabel}>{p.label}</Text>
+                            <View
+                              style={{
+                                width: cellW,
+                                height: sysH,
+                                alignItems: "center",
+                                justifyContent: "flex-end",
+                                position: "relative",
+                              }}
+                            >
+                              <View style={{ width: imgW, height: imgH, position: "relative" }}>
+                                <Image src={p.src} style={{ width: imgW, height: imgH, transform: shiftTransform }} />
+                                {showDims && (
+                                  <View
+                                    style={{
+                                      position: "absolute",
+                                      left: "100%",
+                                      marginLeft: -4,
+                                      top: 0,
+                                      height: imgH,
+                                      width: 16,
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      transform: shiftTransform,
+                                    }}
+                                  >
+                                    <Text style={{ ...dimNumStyle, width: imgH, textAlign: "center", transform: "rotate(90deg)", transformOrigin: "center" }}>{height} мм</Text>
+                                  </View>
+                                )}
+                              </View>
+                              {showDims && (
+                                <View style={{ position: "absolute", top: "100%", left: 0, right: 0, alignItems: "center", marginTop: 3, transform: shiftTransform }}>
+                                  <Text style={dimNumStyle}>{widthValue} мм</Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                        );
+                      }
                       return (
                         <View
                           key={i}
                           style={{ alignItems: "center", marginLeft: i === 0 ? 0 : colGap }}
                         >
                           <Text style={s.schemeLabel}>{p.label}</Text>
-                          {/* Контейнер высотой row1, картинка вертикально по
-                              центру: если дверная картинка выше row1 (есть
-                              подписи сверху/снизу), она симметрично
-                              «выпирает» вверх и вниз, оставаясь по центру
-                              со схемой «Вид системы». */}
                           <View
                             style={{
                               width: cellW,
                               height: sysH,
                               alignItems: "center",
-                              justifyContent: "center",
+                              justifyContent: "flex-end",
+                              position: "relative",
                             }}
                           >
-                            <Image src={p.src} style={{ width: imgW, height: imgH }} />
+                            <View style={{ width: imgW, height: imgH, position: "relative" }}>
+                              <Image src={p.src} style={{ width: imgW, height: imgH }} />
+                              {/* высота слева, повёрнута на -90°. */}
+                              {showDims && (
+                                <View
+                                  style={{
+                                    position: "absolute",
+                                    right: "100%",
+                                    marginRight: 3,
+                                    top: 0,
+                                    height: imgH,
+                                    width: 16,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  <Text style={{ ...dimNumStyle, width: imgH, textAlign: "center", transform: "rotate(-90deg)", transformOrigin: "center" }}>{height} мм</Text>
+                                </View>
+                              )}
+                              {/* ширина — под картинкой, absolute. */}
+                              {showDims && (
+                                <View style={{ position: "absolute", top: "100%", left: 0, right: 0, alignItems: "center", marginTop: 3 }}>
+                                  <Text style={dimNumStyle}>{widthValue} мм</Text>
+                                </View>
+                              )}
+                            </View>
                           </View>
                         </View>
                       );
@@ -683,17 +810,14 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                     key={key}
                     style={{ flexDirection: "row", justifyContent: "center" }}
                   >
-                    {/* Контейнер той же ширины, что и row 1, центрирован так же.
-                        Внутри row 2 выравнивается влево, чтобы «Вид сверху»
-                        оказался строго под «Вид системы». */}
-                    <View style={{ width: r1TotalW, flexDirection: "row", alignItems: "flex-end" }}>
-                      <View style={{ width: sysW, alignItems: "center" }}>
-                        <Text style={s.schemeLabel}>{p.label}</Text>
-                        <Image
-                          src={p.src}
-                          style={{ width: r2DrawW, height: Math.round(r2DrawH) }}
-                        />
-                      </View>
+                    {/* «Вид сверху» — на всю ширину первого ряда, прижат
+                        влево. */}
+                    <View style={{ width: r1TotalW, alignItems: "center" }}>
+                      <Text style={s.schemeLabel}>{p.label}</Text>
+                      <Image
+                        src={p.src}
+                        style={{ width: r2DrawW, height: Math.round(r2DrawH) }}
+                      />
                     </View>
                   </View>
                 );
@@ -713,7 +837,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
           <View style={{ height: 0.5, backgroundColor: BORDER, marginHorizontal: 44 }} />
 
           {/* Bottom 30%: glass + rail photos */}
-          <View wrap={false} style={{ flexDirection: "row", paddingHorizontal: 44, paddingTop: 14, flex: 3 }}>
+          <View wrap={false} style={{ flexDirection: "row", paddingHorizontal: 44, paddingTop: 4, flex: 3 }}>
             {/* Glass */}
             <View style={{ width: "50%", paddingRight: 10 }}>
               <Text style={{ fontSize: 7, fontFamily: "Roboto", fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 8 }}>

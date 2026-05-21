@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Editable } from "@/components/site-edit/Editable";
 
 const faqItems = [
   {
@@ -70,7 +71,7 @@ export function FAQSection() {
             >
               <div className="w-8 h-[1px]" style={{ backgroundColor: "var(--saga-accent)" }} />
               <span className="text-[11px] font-medium uppercase tracking-[0.3em]" style={{ color: "var(--saga-accent)" }}>
-                FAQ
+                <Editable contentKey="home.faq.eyebrow" defaultValue="FAQ" as="span" />
               </span>
             </motion.div>
             <motion.h2
@@ -81,8 +82,10 @@ export function FAQSection() {
               className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1]"
               style={{ color: "var(--saga-primary)" }}
             >
-              Часто задаваемые{" "}
-              <span style={{ color: "var(--saga-accent)" }}>вопросы</span>
+              <Editable contentKey="home.faq.title" defaultValue="Часто задаваемые" as="span" />{" "}
+              <span style={{ color: "var(--saga-accent)" }}>
+                <Editable contentKey="home.faq.title_accent" defaultValue="вопросы" as="span" />
+              </span>
             </motion.h2>
           </div>
           <motion.p
@@ -93,7 +96,12 @@ export function FAQSection() {
             className="text-sm leading-relaxed max-w-sm lg:text-right"
             style={{ color: "rgba(22, 40, 50, 0.4)" }}
           >
-            Не нашли ответ? Свяжитесь с нами — мы с радостью поможем.
+            <Editable
+              contentKey="home.faq.intro"
+              defaultValue="Не нашли ответ? Свяжитесь с нами — мы с радостью поможем."
+              as="span"
+              multiline
+            />
           </motion.p>
         </div>
 
@@ -140,7 +148,11 @@ export function FAQSection() {
                         isOpen ? "text-white" : "text-[var(--saga-primary)] group-hover:text-[var(--saga-accent)]"
                       )}
                     >
-                      {item.question}
+                      <Editable
+                        contentKey={`home.faq.item${i + 1}_question`}
+                        defaultValue={item.question}
+                        as="span"
+                      />
                     </span>
                   </div>
 
@@ -176,7 +188,12 @@ export function FAQSection() {
                         <div className="max-w-2xl">
                           <div className="w-12 h-[1px] mb-5" style={{ backgroundColor: "var(--saga-accent)", opacity: 0.3 }} />
                           <p className="text-sm sm:text-base leading-relaxed text-white/50">
-                            {item.answer}
+                            <Editable
+                              contentKey={`home.faq.item${i + 1}_answer`}
+                              defaultValue={item.answer}
+                              as="span"
+                              multiline
+                            />
                           </p>
                         </div>
                       </div>

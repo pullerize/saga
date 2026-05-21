@@ -9,6 +9,7 @@ import { PortfolioSection } from "@/components/landing/PortfolioSection";
 import { PartnersSection } from "@/components/landing/PartnersSection";
 import { FAQSection } from "@/components/landing/FAQSection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
+import { SiteEditToolbar } from "@/components/site-edit/SiteEditToolbar";
 
 export default function HomePage() {
   return (
@@ -26,6 +27,8 @@ export default function HomePage() {
         <FAQSection />
       </main>
       <LandingFooter />
+      {/* Inline-редактор контента — кнопка видна только админам */}
+      <SiteEditToolbar />
     </div>
   );
 }

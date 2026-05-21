@@ -18,8 +18,6 @@ import {
   Layers,
   Image as ImageIcon,
   GripVertical,
-  HelpCircle,
-  ChevronDown,
 } from "lucide-react";
 
 interface VariantItem {
@@ -34,12 +32,17 @@ interface Scheme {
   label: string;
   svgContent: string;
   // Scheme type:
-  //   "wide" | "square" | "tall" — system view (one of three based on opening ratio)
-  //   "door" — door scheme (always shown)
-  //   "side" — side view (always shown)
-  //   "top"  — top view (always shown)
-  //   null   — legacy door (kept for backward compat)
+  //   "system" — вид системы (теперь по 9 категорий размеров; см. heightCategory/widthCategory)
+  //   "top"    — вид сверху (опционально тоже по 9)
+  //   "side"   — вид сбоку (не используется, legacy)
+  //   "door"   — legacy; новые двери в /admin/doors через DoorScheme
+  //   "wide" | "square" | "tall" — legacy variant of system (по аспекту)
+  //   null     — legacy
   ratioType?: string | null;
+  /** «low» | «mid» | «high» — категория высоты проёма (для system/top). null = legacy / не используется. */
+  heightCategory?: string | null;
+  /** «narrow» | «mid» | «long» — категория ширины проёма. */
+  widthCategory?: string | null;
 }
 
 interface Variant {
@@ -168,274 +171,6 @@ function ItemRow({
   );
 }
 
-/* ─── Подсказка по подготовке SVG-схем ─── */
-function SchemesHelp() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-lg border border-brand-200 bg-brand-50/40">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 text-left cursor-pointer"
-      >
-        <span className="flex items-center gap-2 text-xs font-semibold text-brand-700">
-          <HelpCircle className="w-4 h-4" />
-          Как правильно подготовить SVG-схемы?
-        </span>
-        <ChevronDown
-          className={cn("w-4 h-4 text-brand-700 transition-transform", open && "rotate-180")}
-        />
-      </button>
-      {open && (
-        <div className="px-4 pb-4 pt-1 text-[12px] leading-relaxed text-foreground/80 space-y-3">
-          <p>
-            На карточке клиента в превью КП и в PDF используется до трёх схем:
-            <span className="font-semibold"> «Вид системы»</span>,
-            <span className="font-semibold"> «Вид двери»</span> и
-            <span className="font-semibold"> «Вид сверху»</span>. Их рисует дизайнер
-            в любом векторном редакторе (Figma, Illustrator) и сохраняет как .svg.
-            Чтобы система автоматически подставила нужные размеры, перерисовала
-            двери под фактическую ширину/высоту проёма и не сломала ручки —
-            нужно соблюсти несколько простых правил.
-          </p>
-
-          <div>
-            <p className="font-semibold text-brand-700 mb-1">1. Размер чертежа = размер двери в миллиметрах</p>
-            <p>
-              В редакторе ставьте холст (artboard) ровно по габаритам типичного
-              проёма системы. Например для каскада 3+0 — 3000 × 2000 мм.
-              Все остальные элементы (стекло, рамки, штанга) рисуйте в этом же
-              масштабе. Это позволяет системе автоматически менять пропорции
-              схемы под реальные размеры из калькуляции.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-brand-700 mb-1">2. Стекло двери — обязательно цвет #D5FFFF</p>
-            <p>
-              Залейте каждую дверь (стеклянное полотно) этим конкретным
-              светло-голубым цветом. По нему движок понимает «вот это —
-              стекло двери», находит его центр и привязывает к нему ручки.
-              Если использовать другой оттенок — ручки лягут не туда.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-brand-700 mb-1">3. Слой «system» — всё, что должно тянуться</p>
-            <p>
-              В Figma/Illustrator сгруппируйте всё, что меняется при смене
-              размеров проёма (двери, рамки, стёкла, штангу, профили), в одну
-              группу и назовите её именно <code className="text-[11px] bg-muted px-1 py-0.5 rounded">system</code>{" "}
-              (латиницей, без пробелов). При экспорте в SVG эта группа станет
-              <code className="text-[11px] bg-muted px-1 py-0.5 rounded">{`<g id="system">`}</code> — система найдёт
-              её и будет масштабировать только её содержимое, не трогая
-              фон и подписи.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-brand-700 mb-1">4. Слой «handles» — для ручек</p>
-            <p>
-              Ручки сгруппируйте отдельно и назовите группу{" "}
-              <code className="text-[11px] bg-muted px-1 py-0.5 rounded">handles</code>. Эта группа должна лежать
-              <span className="font-semibold"> рядом</span> со слоем system, а не
-              внутри него — иначе ручки будут сжиматься/растягиваться вместе с
-              дверьми, и при больших проёмах станут уродливыми. Когда они в
-              отдельной группе — система автоматически переносит их к крайним
-              дверям, сохраняя их физический размер.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-brand-700 mb-1">5. Размеры в подписях — динамические</p>
-            <p>
-              Для <span className="font-semibold">вида системы</span> и{" "}
-              <span className="font-semibold">вида двери</span> подписи общей
-              ширины и высоты движок рисует поверх схемы сам — поэтому в SVG
-              их вписывать не нужно, иначе будет дубль.
-            </p>
-            <p className="mt-2">
-              Если в схеме всё же есть свои размерные полоски с цифрами
-              (например в виде сверху между верхней / средней / нижней
-              частью), линии и текст рисует дизайнер прямо в SVG. Чтобы числа
-              не были «жёстко зашиты» под один размер, а менялись под
-              фактический расчёт, в местах с числом напишите вместо самой
-              цифры один из плейсхолдеров:
-            </p>
-            <ul className="list-disc pl-5 mt-1 space-y-0.5">
-              <li>
-                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"{{WIDTH}}"}</code> — общая ширина
-                проёма (мм). В виде двери подставляется ширина одной двери.
-              </li>
-              <li>
-                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"{{DOOR_WIDTH}}"}</code> — ширина
-                одной двери (мм).
-              </li>
-              <li>
-                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"{{GAP_MINUS_DOOR}}"}</code> —
-                свободный проём, когда все двери сдвинуты в один край
-                (= ширина проёма − ширина двери).
-              </li>
-              <li>
-                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"{{HEIGHT}}"}</code> — высота
-                проёма (мм).
-              </li>
-            </ul>
-            <p className="mt-1">
-              Например текстовый элемент{" "}
-              <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{"<text>{{DOOR_WIDTH}} мм</text>"}</code>{" "}
-              превратится при отрисовке в «1010 мм», если по расчёту дверь
-              получилась 1010 мм.
-            </p>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Примечание: для подсистемы «каскад 3+0» вид сверху рисуется
-              автоматически — там вообще не нужен SVG-файл. Если вы видите в
-              превью КП размерные полоски, которые вы не загружали — скорее
-              всего это процедурная схема из встроенного движка, а не ваш SVG.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-brand-700 mb-1">6. Белая подложка</p>
-            <p>
-              Под все элементы положите большой белый прямоугольник. Иначе
-              в зоне, где система дорисовывает размерные подписи, фон будет
-              прозрачный и подсветится цветом страницы (часто серый).
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-brand-700 mb-1">7. Тип каждой схемы</p>
-            <p>
-              Для каждой загруженной схемы выберите её тип:
-            </p>
-            <ul className="list-disc pl-5 mt-1 space-y-0.5">
-              <li>
-                <span className="font-semibold">«Вид системы»</span> (system) —
-                целая система во всю ширину проёма. Размер холста в редакторе
-                задаётся как W × H проёма. <span className="text-muted-foreground">Здесь
-                обязательно нужны слои <code className="text-[10px] bg-muted px-1 py-0.5 rounded">system</code> и{" "}
-                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">handles</code>.</span>
-              </li>
-              <li>
-                <span className="font-semibold">«Вид двери»</span> (door) — одна
-                дверь. Размер холста — ширина одной двери × высота проёма.{" "}
-                <span className="text-muted-foreground">Здесь тоже нужны слои{" "}
-                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">system</code> и{" "}
-                <code className="text-[10px] bg-muted px-1 py-0.5 rounded">handles</code>{" "}
-                (одна ручка).</span>
-              </li>
-              <li>
-                <span className="font-semibold">«Вид сверху»</span> (top) —
-                разрез сверху, как доводчик и двери выглядят с потолка. Обычно
-                широкое и невысокое изображение (соотношение 4:1 или 6:1).{" "}
-                <span className="text-muted-foreground">Никаких специальных
-                слоёв не требует — внутренние секции (верхняя/средняя/нижняя)
-                рисуются просто как часть картинки.</span>
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <p className="font-semibold text-brand-700 mb-1">8. Кратко про названия слоёв</p>
-            <p>
-              Системе важны только два названия слоёв:{" "}
-              <code className="text-[10px] bg-muted px-1 py-0.5 rounded">system</code> (всё, что
-              тянется под размер) и{" "}
-              <code className="text-[10px] bg-muted px-1 py-0.5 rounded">handles</code> (ручки,
-              которые сохраняют физический размер). Все остальные слои/группы
-              можно называть как угодно или вообще не группировать —
-              «верхняя/средняя/нижняя часть» в виде сверху, разные подгруппы
-              профилей, фон, тени и т.д. движок не различает и просто
-              отрисовывает как картинку.
-            </p>
-          </div>
-
-          <p className="text-[11px] text-muted-foreground pt-2 border-t border-border">
-            Подробная техническая инструкция со всеми тонкостями — в файле{" "}
-            <code className="text-[10px] bg-muted px-1 py-0.5 rounded">docs/SVG_SCHEMES.md</code>{" "}
-            проекта.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─── Variant editor ─── */
-/* ─── Scheme editor row ─── */
-function SchemeRow({
-  scheme,
-  onChange,
-  onRemove,
-}: {
-  scheme: Scheme;
-  onChange: (updated: Scheme) => void;
-  onRemove: () => void;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    onChange({ ...scheme, svgContent: text });
-    if (fileRef.current) fileRef.current.value = "";
-  }
-
-  return (
-    <div className="p-3 rounded-lg border border-border/60 bg-background space-y-2">
-      <div className="flex items-center gap-2">
-        <Input
-          value={scheme.label}
-          onChange={(e) => onChange({ ...scheme, label: e.target.value })}
-          placeholder="Вид спереди"
-          className="h-8 text-sm flex-1"
-          autoComplete="one-time-code"
-        />
-        <select
-          value={scheme.ratioType || ""}
-          onChange={(e) => onChange({ ...scheme, ratioType: e.target.value || null })}
-          className="h-8 text-xs rounded-md border border-border bg-background px-2 w-44"
-        >
-          <optgroup label="Виды для PDF">
-            <option value="system">Вид системы (адаптивный)</option>
-            <option value="door">Дверь</option>
-            <option value="side">Вид сбоку</option>
-            <option value="top">Вид сверху</option>
-          </optgroup>
-          <option value="">— не указано —</option>
-        </select>
-        <input ref={fileRef} type="file" accept=".svg" className="hidden" onChange={handleFile} />
-        <Button variant="outline" size="sm" className="h-8 text-xs gap-1 shrink-0" onClick={() => fileRef.current?.click()}>
-          <ImageIcon className="w-3.5 h-3.5" />
-          {scheme.svgContent ? "Заменить" : "Загрузить"}
-        </Button>
-        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0" onClick={onRemove}>
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-      </div>
-
-      {/* SVG preview */}
-      {scheme.svgContent && (
-        <div className="bg-white border border-border/40 rounded-lg p-3 flex items-center justify-center">
-          <div
-            className="max-w-full max-h-32 [&>svg]:max-w-full [&>svg]:max-h-32 [&>svg]:w-auto [&>svg]:h-auto"
-            dangerouslySetInnerHTML={{ __html: scheme.svgContent }}
-          />
-        </div>
-      )}
-
-      {/* Placeholders info */}
-      <p className="text-[9px] text-muted-foreground">
-        Плейсхолдеры в SVG: <code className="bg-muted px-1 rounded">{"{{WIDTH}}"}</code> ширина,
-        <code className="bg-muted px-1 rounded ml-1">{"{{HEIGHT}}"}</code> высота,
-        <code className="bg-muted px-1 rounded ml-1">{"{{DOOR_WIDTH}}"}</code> ширина двери,
-        <code className="bg-muted px-1 rounded ml-1">{"{{DOORS}}"}</code> кол-во дверей
-      </p>
-    </div>
-  );
-}
 
 function VariantEditor({
   initial,
@@ -463,8 +198,6 @@ function VariantEditor({
       { title: "", description: "", iconUrl: null },
     ]
   );
-  const [schemes, setSchemes] = useState<Scheme[]>(initial?.schemes || []);
-
   async function handleRailUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -491,16 +224,6 @@ function VariantEditor({
   }
   function addItem() {
     setItems([...items, { title: "", description: "", iconUrl: null }]);
-  }
-
-  function updateScheme(index: number, updated: Scheme) {
-    setSchemes(schemes.map((s, i) => i === index ? updated : s));
-  }
-  function removeScheme(index: number) {
-    setSchemes(schemes.filter((_, i) => i !== index));
-  }
-  function addScheme() {
-    setSchemes([...schemes, { label: "", svgContent: "" }]);
   }
 
   return (
@@ -569,34 +292,22 @@ function VariantEditor({
           </div>
         </div>
 
-        {/* SVG Schemes */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">SVG-схемы ({schemes.length})</p>
-            <Button variant="outline" size="sm" onClick={addScheme} className="h-7 gap-1 text-xs">
-              <Plus className="w-3 h-3" /> Добавить схему
-            </Button>
-          </div>
-          <div className="mb-3">
-            <SchemesHelp />
-          </div>
-          <div className="space-y-2">
-            {schemes.map((scheme, i) => (
-              <SchemeRow
-                key={i}
-                scheme={scheme}
-                onChange={(updated) => updateScheme(i, updated)}
-                onRemove={() => removeScheme(i)}
-              />
-            ))}
-            {schemes.length === 0 && (
-              <p className="text-[11px] text-muted-foreground py-2">Нет SVG-схем. Добавьте схемы видов системы.</p>
-            )}
+        {/* SVG-схемы переехали в /admin/doors */}
+        <div className="rounded-lg border border-brand-200 bg-brand-50/40 px-4 py-3 text-xs text-brand-700 flex items-start gap-2">
+          <ImageIcon className="w-4 h-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-semibold">SVG-схемы вынесены в отдельный раздел</p>
+            <p className="opacity-80 mt-0.5">
+              «Вид системы», «Вид сверху» и «Вид двери» теперь загружаются в{" "}
+              <Link href="/admin/doors" className="underline hover:text-brand-900 font-medium">/admin/doors</Link>{" "}
+              — там сетка 3×3 категорий размеров отдельно для каждого вида и каждой шотланки.
+              На этой странице остаются только карточки и фото рельсы.
+            </p>
           </div>
         </div>
 
         <div className="flex gap-2 pt-1">
-          <Button size="sm" variant="premium" onClick={() => onSave({ variantName, railImageUrl, items, schemes })} disabled={saving || !variantName.trim()} className="gap-1">
+          <Button size="sm" variant="premium" onClick={() => onSave({ variantName, railImageUrl, items, schemes: [] })} disabled={saving || !variantName.trim()} className="gap-1">
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
             Сохранить
           </Button>
@@ -802,7 +513,7 @@ export default function VariantsPage() {
                         )}
 
                         {/* Preview cards */}
-                        {variant && !isEditing && (variant.items.length > 0 || variant.schemes.length > 0) && (
+                        {variant && !isEditing && variant.items.length > 0 && (
                           <div className="space-y-3 mb-2">
                             {/* Cards preview */}
                             {variant.items.length > 0 && (
@@ -824,20 +535,7 @@ export default function VariantsPage() {
                                 ))}
                               </div>
                             )}
-                            {/* Schemes preview */}
-                            {variant.schemes.length > 0 && (
-                              <div className="grid grid-cols-3 gap-3">
-                                {variant.schemes.map((scheme, i) => (
-                                  <div key={i} className="p-2 rounded-lg border border-border/60 bg-white">
-                                    <p className="text-[10px] font-semibold text-muted-foreground mb-1">{scheme.label}</p>
-                                    <div
-                                      className="[&>svg]:max-w-full [&>svg]:h-auto [&>svg]:max-h-20"
-                                      dangerouslySetInnerHTML={{ __html: scheme.svgContent.substring(0, 5000) }}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                            {/* Schemes preview убран — SVG-схемы теперь в /admin/doors */}
                           </div>
                         )}
 

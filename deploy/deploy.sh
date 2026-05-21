@@ -12,8 +12,12 @@ npm ci --omit=dev=false
 echo "==> prisma generate"
 npx prisma generate
 
-echo "==> prisma migrate deploy"
-npx prisma migrate deploy
+# Схема ведётся через db push (аддитивно), а не миграции: prod.db уже содержит
+# таблицы, которых нет в prisma/migrations. db push добавит недостающие
+# таблицы/колонки (GuestLead, CompanyPrice, showrooms, referralSource и т.д.),
+# сохраняя данные. Без --accept-data-loss — только безопасные аддитивные правки.
+echo "==> prisma db push"
+npx prisma db push --skip-generate
 
 echo "==> next build"
 npm run build

@@ -85,13 +85,21 @@ export async function PUT(req: Request) {
         await prisma.subsystemScheme.createMany({
           data: data.schemes.map(
             (
-              s: { label: string; svgContent: string; ratioType?: string | null },
+              s: {
+                label: string;
+                svgContent: string;
+                ratioType?: string | null;
+                heightCategory?: string | null;
+                widthCategory?: string | null;
+              },
               i: number,
             ) => ({
               variantId: id,
               label: String(s.label || ""),
               svgContent: String(s.svgContent || ""),
               ratioType: s.ratioType ?? null,
+              heightCategory: s.heightCategory ?? null,
+              widthCategory: s.widthCategory ?? null,
               sortOrder: i,
             }),
           ),

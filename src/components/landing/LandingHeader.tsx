@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence, useScroll, useTransform } from "framer-motion";
 import { Menu, X, ArrowRight } from "lucide-react";
 import { Logo } from "@/components/shared/Logo";
+import { Editable } from "@/components/site-edit/Editable";
 
 const navLinks = [
   { label: "Для Вашего дома", href: "#features" },
@@ -60,7 +61,7 @@ export function LandingHeader() {
                 border: scrolled ? "1px solid rgba(22,40,50,0.06)" : "1px solid rgba(255,255,255,0.08)",
               }}
             >
-              {navLinks.map((link) => (
+              {navLinks.map((link, i) => (
                 <a
                   key={link.href}
                   href={link.href}
@@ -77,7 +78,11 @@ export function LandingHeader() {
                     e.currentTarget.style.backgroundColor = "transparent";
                   }}
                 >
-                  {link.label}
+                  <Editable
+                    contentKey={`home.header.nav${i + 1}_label`}
+                    defaultValue={link.label}
+                    as="span"
+                  />
                 </a>
               ))}
             </nav>
@@ -122,7 +127,7 @@ export function LandingHeader() {
                   color: scrolled ? "white" : "var(--saga-primary)",
                 }}
               >
-                Рассчитать
+                <Editable contentKey="home.header.cta_primary" defaultValue="Рассчитать" as="span" />
                 <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
               </Link>
             </div>
@@ -170,7 +175,11 @@ export function LandingHeader() {
                     className="flex items-center justify-between py-4 text-lg font-display font-semibold text-white/80 hover:text-white transition-colors"
                     style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
                   >
-                    {link.label}
+                    <Editable
+                      contentKey={`home.header.nav${i + 1}_label`}
+                      defaultValue={link.label}
+                      as="span"
+                    />
                     <ArrowRight className="w-4 h-4 text-white/20" />
                   </motion.a>
                 ))}
@@ -189,7 +198,7 @@ export function LandingHeader() {
                   className="flex items-center justify-center gap-2 w-full h-14 rounded-full text-sm font-semibold tracking-wide"
                   style={{ backgroundColor: "var(--saga-accent)", color: "var(--saga-primary)" }}
                 >
-                  Рассчитать стоимость
+                  <Editable contentKey="home.header.mobile_cta" defaultValue="Рассчитать стоимость" as="span" />
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               </motion.div>
@@ -216,8 +225,33 @@ export function LandingHeader() {
                 transition={{ duration: 0.3, delay: 0.4 }}
                 className="absolute bottom-10 left-8 right-8"
               >
-                <p className="text-xs text-white/20">+998 XX XXX XX XX</p>
-                <p className="text-xs text-white/15 mt-1">info@saga.uz</p>
+                <p className="text-xs text-white/20">
+                  <a href="tel:+998900989889" className="hover:text-white transition-colors">
+                    <Editable contentKey="home.header.mobile_phone" defaultValue="+998 90 098-98-89" as="span" />
+                  </a>
+                </p>
+                <p className="text-xs text-white/15 mt-1">
+                  <Editable contentKey="home.header.mobile_email" defaultValue="info@perfectsystem.uz" as="span" />
+                </p>
+                <p className="mt-3 flex items-center gap-3 text-xs text-white/30">
+                  <a
+                    href="https://www.instagram.com/perfectsystem.uz/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-white transition-colors"
+                  >
+                    Instagram
+                  </a>
+                  <span className="opacity-30">·</span>
+                  <a
+                    href="https://t.me/Foziljon_K"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-white transition-colors"
+                  >
+                    Telegram
+                  </a>
+                </p>
               </motion.div>
             </div>
           </motion.div>

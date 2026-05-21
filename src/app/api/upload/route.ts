@@ -4,7 +4,7 @@ import path from "path";
 import { requireAuth } from "@/lib/auth-helpers";
 import { rateLimit } from "@/lib/rate-limit";
 
-const MAX_BYTES = 8 * 1024 * 1024; // 8 МБ
+const MAX_BYTES = 30 * 1024 * 1024; // 30 МБ — с запасом под видео-фоны системы
 
 // Магические байты — проверяем РЕАЛЬНЫЙ тип файла, а не Content-Type, который
 // клиент может подделать. Расширение тоже определяем здесь, не доверяя имени.
@@ -42,6 +42,20 @@ const MAGIC_SIGNATURES: Array<{ ext: string; check: (b: Buffer) => boolean }> = 
       return s.startsWith("<?xml") || s.startsWith("<svg");
     },
   },
+  {
+    // WebM — EBML header: 0x1A 0x45 0xDF 0xA3 в первых 4 байтах.
+    ext: "webm",
+    check: (b) =>
+      b.length >= 4 &&
+      b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3,
+  },
+  {
+    // MP4/MOV — "ftyp" box по смещению 4: байты 4–7 = 'f','t','y','p'.
+    ext: "mp4",
+    check: (b) =>
+      b.length >= 12 &&
+      b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70,
+  },
 ];
 
 /**
@@ -77,10 +91,29 @@ export async function POST(req: Request) {
   }
 
   const bytes = Buffer.from(await file.arrayBuffer());
+
+  // HEIC/HEIF/AVIF (формат по умолчанию на iPhone — пользователи часто называют
+  // его «JPG») тоже начинается с "ftyp", из-за чего раньше определялся как mp4 и
+  // сохранялся с расширением .mp4 → затем не отображался в <img>. Явно ловим эти
+  // image-бренды ДО общей проверки и отклоняем с понятным сообщением.
+  if (
+    bytes.length >= 12 &&
+    bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70 // "ftyp"
+  ) {
+    const brand = bytes.slice(8, 12).toString("latin1").toLowerCase();
+    const heicBrands = ["heic", "heix", "heif", "hevc", "heim", "heis", "mif1", "msf1", "avif"];
+    if (heicBrands.includes(brand)) {
+      return NextResponse.json(
+        { error: "Формат HEIC/HEIF (фото с iPhone) не поддерживается. Сохраните или экспортируйте логотип как JPG или PNG." },
+        { status: 415 },
+      );
+    }
+  }
+
   const sig = MAGIC_SIGNATURES.find((s) => s.check(bytes));
   if (!sig) {
     return NextResponse.json(
-      { error: "Допустимые форматы: PNG, JPG, WebP, SVG, GIF" },
+      { error: "Допустимые форматы: PNG, JPG, WebP, SVG, GIF, WebM, MP4" },
       { status: 415 },
     );
   }

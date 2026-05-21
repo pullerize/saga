@@ -17,9 +17,9 @@ const GLASS_COLOR = "#D5FFFF";
 const TRACK_STROKE = 40;
 const DOOR_BORDER = 6;
 const PROFILE_STROKE = 25;
-const HANDLE_STROKE = 10;
-const HANDLE_TIP = 25;
-const HANDLE_HEIGHT = 180;
+const HANDLE_STROKE = 18;
+const HANDLE_TIP = 55;
+const HANDLE_HEIGHT = 360;
 const HANDLE_FROM_BOTTOM = 1000;
 const OVERLAP = 16;
 
@@ -153,7 +153,7 @@ function buildCascade3plus0Door(doorWidth: number, gapHeight: number): string {
  */
 function buildCascade3plus0Top(gapWidth: number, doorWidth: number): string {
   const WALL = 110;             // боковые стены
-  const SECTION_H = 280;        // высота одной секции
+  const SECTION_H = 350;        // высота одной секции (увеличена под подписи над каждой полосой)
   const SECTION_GAP = 340;      // зазор между секциями (нужно место под подписи + воздух)
   const TOP_GAP = 280;          // зазор над секцией 1 (под общую размерную линию проёма)
   const TOTAL_W = gapWidth + WALL * 2;
@@ -168,15 +168,25 @@ function buildCascade3plus0Top(gapWidth: number, doorWidth: number): string {
   const CAP_HEIGHT = 38;
   const OVERLAP_TOP = 16;
 
-  const railFracs = [0.32, 0.5, 0.68];
+  // Рейки в секции — равномерно по 1/4, 1/2, 3/4 высоты: между ними по
+  // ~87 ед., достаточно места под подпись «… мм» над каждой полосой.
+  const railFracs = [0.25, 0.5, 0.75];
   const railY = (sectionY: number, idx: number) => sectionY + SECTION_H * railFracs[idx];
+
+  // Подпись над каждой полосой: размер полосы в мм. Шрифт чуть меньше
+  // секционного, без размерной линии (полоса сама уже толстая горизонталь).
+  const STRIPE_LABEL_FONT = 50;
+  const STRIPE_LABEL_OFFSET = 28; // отступ baseline-а текста над полосой
 
   const doorStripe = (xStart: number, xEnd: number, sectionY: number, railIdx: number) => {
     const y = railY(sectionY, railIdx);
+    const midX = (xStart + xEnd) / 2;
+    const stripeLabel = `${Math.round(xEnd - xStart)} мм`;
     return [
       `<line x1="${xStart}" y1="${y}" x2="${xEnd}" y2="${y}" stroke="${STRIPE_C}" stroke-width="${STRIPE_STROKE}"/>`,
       `<line x1="${xStart}" y1="${y - CAP_HEIGHT / 2}" x2="${xStart}" y2="${y + CAP_HEIGHT / 2}" stroke="${CAP_C}" stroke-width="${CAP_STROKE}"/>`,
       `<line x1="${xEnd}" y1="${y - CAP_HEIGHT / 2}" x2="${xEnd}" y2="${y + CAP_HEIGHT / 2}" stroke="${CAP_C}" stroke-width="${CAP_STROKE}"/>`,
+      `<text x="${midX}" y="${y - STRIPE_LABEL_OFFSET}" font-size="${STRIPE_LABEL_FONT}" fill="${CAP_C}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700">${stripeLabel}</text>`,
     ].join("\n    ");
   };
 

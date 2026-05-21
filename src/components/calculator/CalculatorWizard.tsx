@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useCallback, useEffect, useRef } from "react";
+import { useMemo, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCalculatorStore } from "@/stores/calculator";
 import { StepsBar } from "./StepsBar";
@@ -10,8 +11,9 @@ import { SubsystemSelector } from "./SubsystemSelector";
 import { GlassSelector } from "./GlassSelector";
 import { ShotlanSelector } from "./ShotlanSelector";
 import { ResultTable } from "./ResultTable";
+import { GuestContactGate } from "./GuestContactGate";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight, Calculator } from "lucide-react";
+import { ArrowLeft, ArrowRight, Calculator, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { systemsData, getAvailableSubsystems } from "@/lib/calculations/systemsData";
 import { calculateTotal } from "@/lib/calculations/engine";
@@ -34,6 +36,48 @@ export function CalculatorWizard({ systemType }: CalculatorWizardProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isInitRef = useRef(false);
+  const { data: session, status: sessionStatus } = useSession();
+  // Три явных состояния, чтобы цена не «мелькала» гостю, пока сессия грузится:
+  //   loading        — статус ещё неизвестен → показываем спиннер
+  //   authenticated  — залогинен (партнёр/менеджер/админ) → сразу таблица
+  //   unauthenticated— гость → сначала GuestContactGate, потом таблица
+  const isSessionLoading = sessionStatus === "loading";
+  const isAuthenticated = sessionStatus === "authenticated" && !!session?.user;
+  const isGuest = sessionStatus === "unauthenticated";
+
+  // Гостевой gate: показывается на шаге 3 вместо результата, пока гость не
+  // оставил имя+телефон. После успешной отправки запоминаем разблокировку в
+  // sessionStorage (на одну сессию вкладки), чтобы повторный визит к шагу 3
+  // в той же сессии не требовал ввода данных снова.
+  const [guestUnlocked, setGuestUnlocked] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return sessionStorage.getItem(`guest_lead_unlocked_${systemType}`) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  // Подсистемы из БД с videoUrl/posterUrl — для превью видео у подсистем,
+  // в т.ч. для гостя. systemsData (hardcoded) ими не владеет, поэтому
+  // отдельным fetch'ем подгружаем по выбранной системе.
+  const [dbSubsystemMedia, setDbSubsystemMedia] = useState<Record<string, { videoUrl: string | null; posterUrl: string | null }>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/systems")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Array<{ slug: string; subsystems: Array<{ name: string; videoUrl?: string | null; posterUrl?: string | null }> }>) => {
+        if (cancelled) return;
+        const sys = rows.find((s) => s.slug === systemType);
+        const map: Record<string, { videoUrl: string | null; posterUrl: string | null }> = {};
+        sys?.subsystems.forEach((sub) => {
+          map[sub.name] = { videoUrl: sub.videoUrl ?? null, posterUrl: sub.posterUrl ?? null };
+        });
+        setDbSubsystemMedia(map);
+      })
+      .catch(() => setDbSubsystemMedia({}));
+    return () => { cancelled = true; };
+  }, [systemType]);
 
   // Sync URL query params with store selections
   useEffect(() => {
@@ -69,6 +113,17 @@ export function CalculatorWizard({ systemType }: CalculatorWizardProps) {
     const glass = searchParams.get("glass");
     const shotlan = searchParams.get("shotlan");
     const step = searchParams.get("step");
+
+    // Если URL пустой (зашли свежим путём — /calculator/<slug>), сбрасываем
+    // прогресс из store, иначе из прошлой сессии могут остаться выбранные
+    // подсистема/стекло/шотлан/шаг и Wizard сразу прыгает на «результат».
+    if (!sub && !glass && !shotlan && !step) {
+      store.setSubsystem("");
+      store.setGlass("");
+      store.setShotlan("");
+      store.setStep(0);
+      return;
+    }
 
     if (sub) store.setSubsystem(sub);
     if (glass) store.setGlass(glass);
@@ -243,6 +298,7 @@ export function CalculatorWizard({ systemType }: CalculatorWizardProps) {
                   <SubsystemSelector
                     systemType={systemType}
                     subsystems={availableSubsystems}
+                    subsystemMedia={dbSubsystemMedia}
                     selected={store.subsystemId}
                     onSelect={store.setSubsystem}
                   />
@@ -341,8 +397,33 @@ export function CalculatorWizard({ systemType }: CalculatorWizardProps) {
         </div>
       )}
 
-      {/* Step 3: Results — full width */}
-      {store.currentStep === 3 && store.components && (
+      {/* Step 3: Results — full width.
+          Для гостей перед результатом показывается GuestContactGate.
+          Пока статус сессии не определён — спиннер (чтобы цена не мелькнула гостю). */}
+      {store.currentStep === 3 && store.components && isSessionLoading && !guestUnlocked && (
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-20 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {store.currentStep === 3 && store.components && isGuest && !guestUnlocked && (
+        <GuestContactGate
+          systemSlug={systemType}
+          systemName={system.name}
+          subsystemName={store.subsystemId}
+          fullWidth={store.fullWidth}
+          openWidth={store.openWidth}
+          height={store.height}
+          doorWidth={store.doorWidth ?? undefined}
+          glassType={store.glass}
+          shotlanType={store.shotlan}
+          totalPrice={store.totalPrice ?? undefined}
+          onUnlock={() => setGuestUnlocked(true)}
+          onBack={store.prevStep}
+        />
+      )}
+
+      {store.currentStep === 3 && store.components && (isAuthenticated || guestUnlocked) && (
         <ResultTable
           components={store.components}
           totalPrice={store.totalPrice ?? 0}

@@ -20,7 +20,7 @@ const SLUG_TO_NAME: Record<string, string> = {
 export async function POST(req: Request) {
   const limited = rateLimit("calculate", req, { limit: 60, windowMs: 60_000 });
   if (limited) return limited;
-  const { error } = await requireAuth();
+  const { error, session } = await requireAuth();
   if (error) return error;
   const body = await req.json().catch(() => ({}));
   const { systemSlug, subsystemName, fullWidth, openWidth, height, glass, shotlan } = body;
@@ -70,12 +70,36 @@ export async function POST(req: Request) {
   const paramLabels: Record<string, string> = {};
   paramDefs.forEach((d) => { paramLabels[d.key] = d.label.trim(); });
 
+  // Переопределения цен компании текущего пользователя. Если у его компании
+  // задана своя цена компонента — используется она, иначе Component.defaultPrice.
+  // Так партнёрские цены применяются только к карточкам их компании.
+  let companyId: string | null = null;
+  if (session?.user?.id) {
+    const u = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { companyId: true, companyName: true },
+    });
+    companyId = u?.companyId ?? null;
+    if (!companyId && u?.companyName) {
+      const byName = await prisma.company.findUnique({ where: { name: u.companyName }, select: { id: true } });
+      companyId = byName?.id ?? null;
+    }
+  }
+  const priceOverride: Record<string, number> = {}; // componentId → price
+  if (companyId) {
+    const rows = await prisma.companyPrice.findMany({ where: { companyId } });
+    rows.forEach((r) => { priceOverride[r.componentId] = r.price; });
+  }
+  // Эффективная цена компонента: переопределение компании или базовая.
+  const effectivePrice = (c: { id: string; defaultPrice: number }) =>
+    priceOverride[c.id] ?? c.defaultPrice;
+
   // Load component prices
   const dbComponents = await prisma.component.findMany();
   const componentPrices: Record<string, number> = {};
   const componentNames: Record<string, string> = {};
   dbComponents.forEach((c) => {
-    componentPrices[c.key] = c.defaultPrice;
+    componentPrices[c.key] = effectivePrice(c);
     componentNames[c.key] = c.name;
   });
 
@@ -213,7 +237,7 @@ export async function POST(req: Request) {
     let unit = "шт";
     const matchedComp = findComponent(f.componentName);
     if (matchedComp) {
-      price = matchedComp.defaultPrice;
+      price = effectivePrice(matchedComp);
     }
 
     const sum = Math.round(qty * price * 100) / 100;
@@ -308,7 +332,7 @@ export async function POST(req: Request) {
           const label = paramLabels[key]?.trim();
           if (label) compMatch = findComponent(label) ?? undefined;
         }
-        const price = compMatch?.defaultPrice ?? (shotlanComps[key] || 0);
+        const price = (compMatch ? effectivePrice(compMatch) : undefined) ?? (shotlanComps[key] || 0);
         const sum = Math.round(qty * price * 100) / 100;
         // Use paramLabels for display name (more accurate than fuzzy-matched component name)
         const displayName = paramLabels[key]?.trim() || compMatch?.name || componentNames[key] || key;

@@ -10,6 +10,9 @@ import { PreviewModal } from "./PreviewModal";
 interface SubsystemSelectorProps {
   systemType: string;
   subsystems: string[];
+  /** Опционально: пере-загруженные через /admin/systems видео/постеры подсистем
+   *  (из БД). Имеют приоритет над hardcoded subsystemVideos/subsystemPosters. */
+  subsystemMedia?: Record<string, { videoUrl: string | null; posterUrl: string | null }>;
   selected: string | null;
   onSelect: (subsystem: string) => void;
 }
@@ -17,6 +20,7 @@ interface SubsystemSelectorProps {
 export function SubsystemSelector({
   systemType,
   subsystems,
+  subsystemMedia,
   selected,
   onSelect,
 }: SubsystemSelectorProps) {
@@ -24,13 +28,23 @@ export function SubsystemSelector({
 
   if (subsystems.length === 0) return null;
 
-  const videos = subsystemVideos[systemType] || {};
-  const posters = subsystemPosters[systemType] || {};
+  const legacyVideos = subsystemVideos[systemType] || {};
+  const legacyPosters = subsystemPosters[systemType] || {};
 
-  const previewMedia = previewSub && videos[previewSub]
-    ? { type: "video" as const, src: videos[previewSub], poster: posters[previewSub] }
-    : previewSub && posters[previewSub]
-      ? { type: "image" as const, src: posters[previewSub] }
+  // Резолвер источника: сначала из БД (админка), затем legacy hardcoded.
+  function videoFor(name: string): string {
+    return subsystemMedia?.[name]?.videoUrl || legacyVideos[name] || "";
+  }
+  function posterFor(name: string): string {
+    return subsystemMedia?.[name]?.posterUrl || legacyPosters[name] || "";
+  }
+
+  const previewVideo = previewSub ? videoFor(previewSub) : "";
+  const previewPoster = previewSub ? posterFor(previewSub) : "";
+  const previewMedia = previewVideo
+    ? { type: "video" as const, src: previewVideo, poster: previewPoster }
+    : previewPoster
+      ? { type: "image" as const, src: previewPoster }
       : null;
 
   return (
@@ -56,8 +70,8 @@ export function SubsystemSelector({
           <SubsystemCard
             key={sub}
             name={sub}
-            videoSrc={videos[sub]}
-            posterSrc={posters[sub]}
+            videoSrc={videoFor(sub)}
+            posterSrc={posterFor(sub)}
             isSelected={selected === sub}
             onSelect={() => onSelect(sub)}
             onPreview={() => setPreviewSub(sub)}

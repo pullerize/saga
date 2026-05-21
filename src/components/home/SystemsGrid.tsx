@@ -21,6 +21,8 @@ const SYSTEM_DESCRIPTIONS: Record<string, string> = {
 interface DBSystem {
   slug: string;
   name: string;
+  videoUrl?: string | null;
+  posterUrl?: string | null;
   subsystems: { id: string }[];
 }
 
@@ -33,7 +35,7 @@ export function SystemsGrid({ targetPath = "auth" }: SystemsGridProps) {
   const router = useRouter();
   const [previewSlug, setPreviewSlug] = useState<string | null>(null);
   const [systems, setSystems] = useState<
-    Array<{ slug: string; name: string; description: string; subsystems: number }>
+    Array<{ slug: string; name: string; description: string; subsystems: number; videoUrl: string | null; posterUrl: string | null }>
   >([]);
 
   useEffect(() => {
@@ -46,15 +48,27 @@ export function SystemsGrid({ targetPath = "auth" }: SystemsGridProps) {
             name: s.name,
             description: SYSTEM_DESCRIPTIONS[s.slug] ?? "",
             subsystems: s.subsystems.length,
+            videoUrl: s.videoUrl ?? null,
+            posterUrl: s.posterUrl ?? null,
           }))
         );
       })
       .catch(() => setSystems([]));
   }, []);
 
+  // Источник медиа: сначала БД (sys.videoUrl/posterUrl — то, что админ
+  // загружает через /admin/systems), затем hardcoded systemMedia как fallback
+  // (на случай если у админа не дошли руки залить новое видео).
+  const resolveVideo = (slug: string, dbUrl: string | null) =>
+    dbUrl || systemMedia[slug]?.video || "";
+  const resolvePoster = (slug: string, dbUrl: string | null) =>
+    dbUrl || systemMedia[slug]?.poster || "";
+
   const previewSystem = previewSlug ? systems.find((s) => s.slug === previewSlug) : null;
-  const previewMedia = previewSlug && systemMedia[previewSlug]
-    ? { type: "video" as const, src: systemMedia[previewSlug].video, poster: systemMedia[previewSlug].poster }
+  const previewVideo = previewSystem ? resolveVideo(previewSystem.slug, previewSystem.videoUrl) : "";
+  const previewPoster = previewSystem ? resolvePoster(previewSystem.slug, previewSystem.posterUrl) : "";
+  const previewMedia = previewVideo || previewPoster
+    ? { type: "video" as const, src: previewVideo, poster: previewPoster }
     : null;
 
   return (
@@ -100,6 +114,8 @@ export function SystemsGrid({ targetPath = "auth" }: SystemsGridProps) {
                   name={system.name}
                   description={system.description}
                   subsystems={system.subsystems}
+                  video={resolveVideo(system.slug, system.videoUrl)}
+                  poster={resolvePoster(system.slug, system.posterUrl)}
                   onClick={() => setPreviewSlug(system.slug)}
                 />
               </motion.div>
@@ -121,6 +137,8 @@ export function SystemsGrid({ targetPath = "auth" }: SystemsGridProps) {
                   name={system.name}
                   description={system.description}
                   subsystems={system.subsystems}
+                  video={resolveVideo(system.slug, system.videoUrl)}
+                  poster={resolvePoster(system.slug, system.posterUrl)}
                   onClick={() => setPreviewSlug(system.slug)}
                 />
               </motion.div>
@@ -148,20 +166,22 @@ export function SystemsGrid({ targetPath = "auth" }: SystemsGridProps) {
 
 /* Large featured card */
 function SystemCardLarge({
-  slug,
   name,
   description,
   subsystems,
+  video,
+  poster,
   onClick,
 }: {
   slug: string;
   name: string;
   description: string;
   subsystems: number;
+  video: string;
+  poster: string;
   onClick: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const media = systemMedia[slug];
 
   const handleMouseEnter = () => {
     videoRef.current?.play().catch(() => {});
@@ -180,12 +200,12 @@ function SystemCardLarge({
       onMouseLeave={handleMouseLeave}
       className="group relative cursor-pointer rounded-2xl overflow-hidden bg-white border border-border/60 hover:border-brand-300/60 transition-all duration-500 premium-shadow hover:premium-shadow-lg hover:-translate-y-1"
     >
-      {media && (
+      {(video || poster) && (
         <div className="relative w-full aspect-[16/9] overflow-hidden bg-brand-950">
           <video
             ref={videoRef}
-            src={media.video}
-            poster={media.poster}
+            src={video || undefined}
+            poster={poster || undefined}
             muted
             loop
             playsInline
@@ -233,20 +253,22 @@ function SystemCardLarge({
 
 /* Compact card for remaining systems */
 function SystemCard({
-  slug,
   name,
   description,
   subsystems,
+  video,
+  poster,
   onClick,
 }: {
   slug: string;
   name: string;
   description: string;
   subsystems: number;
+  video: string;
+  poster: string;
   onClick: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const media = systemMedia[slug];
 
   const handleMouseEnter = () => {
     videoRef.current?.play().catch(() => {});
@@ -265,12 +287,12 @@ function SystemCard({
       onMouseLeave={handleMouseLeave}
       className="group relative cursor-pointer h-full rounded-2xl overflow-hidden bg-white border border-border/60 hover:border-brand-300/60 transition-all duration-500 premium-shadow hover:premium-shadow-lg hover:-translate-y-1"
     >
-      {media && (
+      {(video || poster) && (
         <div className="relative w-full aspect-[4/3] overflow-hidden bg-brand-950">
           <video
             ref={videoRef}
-            src={media.video}
-            poster={media.poster}
+            src={video || undefined}
+            poster={poster || undefined}
             muted
             loop
             playsInline

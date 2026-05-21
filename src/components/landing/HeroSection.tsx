@@ -4,6 +4,8 @@ import Link from "next/link";
 import { motion, useScroll, useTransform, useMotionValue, useSpring, animate } from "framer-motion";
 import { useRef, useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
+import { Editable } from "@/components/site-edit/Editable";
+import { useSiteEdit } from "@/components/site-edit/SiteEditProvider";
 
 /* ─── Animated counter ─── */
 function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
@@ -20,21 +22,82 @@ function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
   return <>{value}{suffix}</>;
 }
 
+/**
+ * Один элемент статистики Hero. Value хранится строкой "7"/"500+"/"5 лет" в SiteContent.
+ * В обычном режиме — анимированный Counter + suffix. В режиме редактирования —
+ * Editable строка, чтобы можно было ввести и число, и единицу (+ / лет / шт).
+ */
+function HeroStatItem({
+  statId,
+  defaultValue,
+  defaultLabel,
+}: {
+  statId: number;
+  defaultValue: string;
+  defaultLabel: string;
+}) {
+  const { editing, get } = useSiteEdit();
+  const valueRaw = get(`home.hero.stat${statId}_value`, defaultValue);
+  const { num, suffix } = parseStatValue(valueRaw);
+
+  return (
+    <div className="py-4 lg:py-5 px-4 lg:px-8 text-center lg:text-left">
+      <p className="text-xl lg:text-2xl font-display font-bold text-white tabular-nums">
+        {editing ? (
+          <Editable
+            contentKey={`home.hero.stat${statId}_value`}
+            defaultValue={defaultValue}
+            as="span"
+          />
+        ) : (
+          <Counter target={num} suffix={suffix} />
+        )}
+      </p>
+      <p className="mt-0.5 text-[10px] uppercase tracking-[0.15em] text-white/25">
+        <Editable
+          contentKey={`home.hero.stat${statId}_label`}
+          defaultValue={defaultLabel}
+          as="span"
+        />
+      </p>
+    </div>
+  );
+}
+
 /* ─── Letter-by-letter reveal ─── */
 function AnimatedLine({
   text,
   delay = 0,
   className,
   style,
+  contentKey,
 }: {
   text: string;
   delay?: number;
   className?: string;
   style?: React.CSSProperties;
+  /** \u0415\u0441\u043B\u0438 \u0437\u0430\u0434\u0430\u043D \u2014 \u0442\u0435\u043A\u0441\u0442 \u0431\u0435\u0440\u0451\u0442\u0441\u044F \u0438\u0437 SiteContent (\u0441 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E\u0441\u0442\u044C\u044E inline-\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F). */
+  contentKey?: string;
 }) {
+  const { editing, get } = useSiteEdit();
+  const actualText = contentKey ? get(contentKey, text) : text;
+
+  // \u0412 \u0440\u0435\u0436\u0438\u043C\u0435 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F \u2014 \u043E\u0442\u0434\u0430\u0451\u043C \u0443\u043F\u0440\u0430\u0432\u043B\u0435\u043D\u0438\u0435 \u043E\u0431\u044B\u0447\u043D\u043E\u043C\u0443 <Editable>:
+  // contentEditable, \u0431\u0435\u0437 \u0430\u043D\u0438\u043C\u0430\u0446\u0438\u0438, \u0447\u0442\u043E\u0431\u044B \u043D\u0435 \u0434\u0451\u0440\u0433\u0430\u043B\u0441\u044F \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0438 \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0438.
+  if (editing && contentKey) {
+    return (
+      <Editable
+        contentKey={contentKey}
+        defaultValue={text}
+        as="span"
+        className={className}
+      />
+    );
+  }
+
   return (
     <span className={className} style={style}>
-      {text.split("").map((char, i) => (
+      {actualText.split("").map((char, i) => (
         <motion.span
           key={i}
           className="inline-block"
@@ -83,11 +146,22 @@ function GlowOrb() {
   );
 }
 
+// stats: значения и подписи статистики в нижней строке Hero.
+// "value" хранится строкой ("7", "500+", "5 лет") — так редактор позволяет
+// править число И суффикс одной строкой. Counter анимирует только числовую
+// часть, суффикс берётся как остаток.
 const stats = [
-  { value: 7, suffix: "", label: "типов систем" },
-  { value: 500, suffix: "+", label: "реализованных проектов" },
-  { value: 5, suffix: " лет", label: "гарантии качества" },
+  { id: 1, value: "7", label: "типов систем" },
+  { id: 2, value: "500+", label: "реализованных проектов" },
+  { id: 3, value: "5 лет", label: "гарантии качества" },
 ];
+
+/** Разделяет "500+" → { num: 500, suffix: "+" }; "5 лет" → { num: 5, suffix: " лет" }. */
+function parseStatValue(raw: string): { num: number; suffix: string } {
+  const m = /^\s*(\d+)(.*)$/.exec(raw || "");
+  if (!m) return { num: 0, suffix: raw || "" };
+  return { num: parseInt(m[1], 10), suffix: m[2] || "" };
+}
 
 export function HeroSection() {
   const ref = useRef<HTMLElement>(null);
@@ -208,20 +282,25 @@ export function HeroSection() {
               className="text-[11px] font-medium uppercase tracking-[0.3em]"
               style={{ color: "var(--saga-accent)" }}
             >
-              Премиальные дверные системы
+              <Editable
+                contentKey="home.hero.tagline"
+                defaultValue="Премиальные дверные системы"
+                as="span"
+              />
             </motion.span>
           </motion.div>
 
           {/* Headline */}
           <h1 className="font-display font-bold leading-[0.92] tracking-tight">
             <span className="block text-[clamp(2.6rem,7.5vw,6.5rem)] text-white overflow-hidden">
-              <AnimatedLine text="Раздвижные" delay={0.3} />
+              <AnimatedLine contentKey="home.hero.headline1" text="Раздвижные" delay={0.3} />
             </span>
             <span className="block text-[clamp(2.6rem,7.5vw,6.5rem)] text-white/30 overflow-hidden">
-              <AnimatedLine text="и межкомнатные" delay={0.6} />
+              <AnimatedLine contentKey="home.hero.headline2" text="и межкомнатные" delay={0.6} />
             </span>
             <span className="block text-[clamp(2.6rem,7.5vw,6.5rem)] overflow-hidden">
               <AnimatedLine
+                contentKey="home.hero.headline3"
                 text="двери"
                 delay={1.0}
                 style={{ color: "var(--saga-accent)" }}
@@ -231,16 +310,19 @@ export function HeroSection() {
 
           {/* Description + CTA */}
           <div className="mt-6 lg:mt-8 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-6 lg:gap-20 items-end">
-            <motion.p
+            <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 1.5 }}
               className="text-sm sm:text-base leading-relaxed max-w-md text-white/35"
             >
-              Изысканные решения для Вашего интерьера.
-              Индивидуальный подход, безупречное качество,
-              профессиональный монтаж.
-            </motion.p>
+              <Editable
+                contentKey="home.hero.description"
+                defaultValue="Изысканные решения для Вашего интерьера. Индивидуальный подход, безупречное качество, профессиональный монтаж."
+                as="p"
+                multiline
+              />
+            </motion.div>
 
             <motion.div
               initial={{ opacity: 0, y: 15 }}
@@ -255,14 +337,23 @@ export function HeroSection() {
               >
                 {/* Shine effect */}
                 <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-                <span className="relative">Рассчитать стоимость</span>
+                <Editable
+                  contentKey="home.hero.cta_primary"
+                  defaultValue="Рассчитать стоимость"
+                  as="span"
+                  className="relative"
+                />
                 <ArrowRight className="relative w-4 h-4 transition-transform group-hover:translate-x-1" />
               </Link>
               <a
                 href="#features"
                 className="group inline-flex items-center justify-center h-13 px-8 rounded-full text-sm font-medium tracking-wide border border-white/10 text-white/50 transition-all duration-300 hover:border-white/25 hover:text-white/80"
               >
-                Подробнее
+                <Editable
+                  contentKey="home.hero.cta_secondary"
+                  defaultValue="Подробнее"
+                  as="span"
+                />
               </a>
             </motion.div>
           </div>
@@ -278,15 +369,13 @@ export function HeroSection() {
       >
         <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-12">
           <div className="grid grid-cols-3 divide-x divide-white/[0.06]">
-            {stats.map((stat, i) => (
-              <div key={stat.label} className="py-4 lg:py-5 px-4 lg:px-8 text-center lg:text-left">
-                <p className="text-xl lg:text-2xl font-display font-bold text-white tabular-nums">
-                  <Counter target={stat.value} suffix={stat.suffix} />
-                </p>
-                <p className="mt-0.5 text-[10px] uppercase tracking-[0.15em] text-white/25">
-                  {stat.label}
-                </p>
-              </div>
+            {stats.map((stat) => (
+              <HeroStatItem
+                key={stat.id}
+                statId={stat.id}
+                defaultValue={stat.value}
+                defaultLabel={stat.label}
+              />
             ))}
           </div>
         </div>

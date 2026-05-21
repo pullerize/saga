@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { systemMedia, subsystemVideos } from "@/lib/calculations/media";
 import {
   ArrowLeft,
   Plus,
@@ -29,6 +30,8 @@ interface Subsystem {
   maxWidth: number;
   params: Record<string, unknown>;
   formulas?: Record<string, string> | null;
+  videoUrl?: string | null;
+  posterUrl?: string | null;
 }
 
 interface DoorSystem {
@@ -41,6 +44,8 @@ interface DoorSystem {
   hasExtraField: boolean;
   minHeight: number;
   maxHeight: number;
+  videoUrl?: string | null;
+  posterUrl?: string | null;
   subsystems: Subsystem[];
 }
 
@@ -71,6 +76,30 @@ interface SystemFormData {
   hasExtraField: boolean;
   minHeight: number;
   maxHeight: number;
+  videoUrl: string | null;
+  posterUrl: string | null;
+}
+
+/**
+ * Преобразует название системы в URL-slug.
+ * Кириллица транслитерируется в латиницу, пробелы → дефисы, всё в lowercase.
+ * Пример: «Каскадные двери» → «kaskadnye-dveri».
+ */
+const RU_TO_LAT: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh",
+  з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o",
+  п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts",
+  ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+};
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .split("")
+    .map((ch) => (RU_TO_LAT[ch] !== undefined ? RU_TO_LAT[ch] : ch))
+    .join("")
+    .replace(/[^a-z0-9]+/g, "-") // всё кроме [a-z0-9] → дефис
+    .replace(/^-+|-+$/g, "")     // обрезка дефисов по краям
+    .replace(/-{2,}/g, "-");     // схлопывание подряд идущих дефисов
 }
 
 /* ─── Inline edit row for system ─── */
@@ -85,12 +114,71 @@ function SystemForm({
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [slug, setSlug] = useState(initial?.slug ?? "");
+
+  // Автогенерация slug из названия (только при создании новой системы —
+  // existing систему уже невозможно переименовать без миграции связанных
+  // записей по systemSlug). Поле slug — disabled, пользователь не редактирует.
+  const isNewSystem = !initial?.slug;
+  useEffect(() => {
+    if (!isNewSystem) return;
+    setSlug(slugify(name));
+  }, [name, isNewSystem]);
   const [hasExtra, setHasExtra] = useState(initial?.hasExtraField ?? false);
   const [minW, setMinW] = useState(initial?.minWidth ?? 600);
   const [maxW, setMaxW] = useState(initial?.maxWidth ?? 6000);
   const [maxFull, setMaxFull] = useState(initial?.maxFullWidth ?? 0);
   const [minH, setMinH] = useState(initial?.minHeight ?? 1800);
   const [maxH, setMaxH] = useState(initial?.maxHeight ?? 3500);
+  const [videoUrl, setVideoUrl] = useState<string>(initial?.videoUrl ?? "");
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoError, setVideoError] = useState("");
+  const videoFileRef = useRef<HTMLInputElement>(null);
+  const [posterUrl, setPosterUrl] = useState<string>(initial?.posterUrl ?? "");
+  const [uploadingPoster, setUploadingPoster] = useState(false);
+  const [posterError, setPosterError] = useState("");
+  const posterFileRef = useRef<HTMLInputElement>(null);
+
+  async function handleVideoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingVideo(true);
+    setVideoError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
+        setVideoUrl(data.url);
+      } else {
+        setVideoError(data.error || "Не удалось загрузить видео");
+      }
+    } finally {
+      setUploadingVideo(false);
+      if (videoFileRef.current) videoFileRef.current.value = "";
+    }
+  }
+
+  async function handlePosterUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPoster(true);
+    setPosterError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
+        setPosterUrl(data.url);
+      } else {
+        setPosterError(data.error || "Не удалось загрузить постер");
+      }
+    } finally {
+      setUploadingPoster(false);
+      if (posterFileRef.current) posterFileRef.current.value = "";
+    }
+  }
 
   return (
     <Card className="border-brand-200 bg-brand-50/30">
@@ -102,8 +190,17 @@ function SystemForm({
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Каскадные двери" autoComplete="one-time-code" />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Slug (URL)</label>
-            <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="cascade" autoComplete="one-time-code" />
+            <label className="text-xs text-muted-foreground">
+              Slug (URL) <span className="text-[10px] opacity-60">— автоматически</span>
+            </label>
+            <Input
+              value={slug}
+              readOnly
+              disabled
+              placeholder="генерируется из названия"
+              className="bg-muted/40 cursor-not-allowed"
+              autoComplete="one-time-code"
+            />
           </div>
         </div>
 
@@ -159,11 +256,138 @@ function SystemForm({
           </div>
         </div>
 
+        {/* Видео системы */}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground mb-1.5">Видео системы</p>
+          <div className="flex items-start gap-3">
+            {videoUrl ? (
+              <video
+                key={videoUrl}
+                src={videoUrl}
+                className="w-32 h-20 rounded-lg object-cover bg-muted/40 border border-border"
+                muted
+                loop
+                autoPlay
+                playsInline
+                preload="auto"
+                controls
+                onLoadedMetadata={(e) => {
+                  // Если первый кадр чёрный (часто у видео с fade-in),
+                  // перемотаем на 0.5 секунды — покажется уже наполненный кадр.
+                  const v = e.currentTarget;
+                  if (v.duration && v.duration > 0.6) {
+                    try { v.currentTime = 0.5; } catch { /* ignore */ }
+                  }
+                  v.play().catch(() => { /* autoplay заблокирован */ });
+                }}
+                onError={(e) => {
+                  const v = e.currentTarget;
+                  console.error("[admin/systems] video error:", v.error?.code, v.error?.message, videoUrl);
+                }}
+              />
+            ) : (
+              <div className="w-32 h-20 rounded-lg bg-muted flex items-center justify-center border border-dashed border-border text-[10px] text-muted-foreground text-center px-2">
+                Видео не загружено
+              </div>
+            )}
+            <div className="space-y-1.5 flex-1">
+              <input
+                ref={videoFileRef}
+                type="file"
+                accept="video/webm,video/mp4,.webm,.mp4"
+                className="hidden"
+                onChange={handleVideoUpload}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => videoFileRef.current?.click()}
+                disabled={uploadingVideo}
+              >
+                {uploadingVideo ? "Загрузка…" : videoUrl ? "Заменить" : "Загрузить"}
+              </Button>
+              {videoUrl && (
+                <button
+                  type="button"
+                  onClick={() => setVideoUrl("")}
+                  className="text-[9px] text-muted-foreground hover:text-destructive cursor-pointer block"
+                >
+                  Удалить
+                </button>
+              )}
+              <p className="text-[10px] text-muted-foreground leading-snug max-w-[260px]">
+                Форматы: <span className="font-semibold">WebM</span> (рекомендуется) или MP4.
+                Лимит 30 МБ. Сохраняется в <code>/uploads/</code>.
+              </p>
+              {videoError && (
+                <p className="text-[10px] text-destructive">{videoError}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Постер системы — картинка-превью; показывается ДО загрузки видео и
+            на местах где видео не доступно. */}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground mb-1.5">Постер (превью)</p>
+          <div className="flex items-start gap-3">
+            {posterUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={posterUrl}
+                alt=""
+                className="w-32 h-20 rounded-lg object-cover bg-muted/40 border border-border"
+              />
+            ) : (
+              <div className="w-32 h-20 rounded-lg bg-muted flex items-center justify-center border border-dashed border-border text-[10px] text-muted-foreground text-center px-2">
+                Постер не загружен
+              </div>
+            )}
+            <div className="space-y-1.5 flex-1">
+              <input
+                ref={posterFileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml,.png,.jpg,.jpeg,.webp,.svg"
+                className="hidden"
+                onChange={handlePosterUpload}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => posterFileRef.current?.click()}
+                disabled={uploadingPoster}
+              >
+                {uploadingPoster ? "Загрузка…" : posterUrl ? "Заменить" : "Загрузить"}
+              </Button>
+              {posterUrl && (
+                <button
+                  type="button"
+                  onClick={() => setPosterUrl("")}
+                  className="text-[9px] text-muted-foreground hover:text-destructive cursor-pointer block"
+                >
+                  Удалить
+                </button>
+              )}
+              <p className="text-[10px] text-muted-foreground leading-snug max-w-[260px]">
+                Картинка-превью видео. Показывается до загрузки видео и при наведении.
+                Форматы: PNG, JPG, WebP, SVG.
+              </p>
+              {posterError && (
+                <p className="text-[10px] text-destructive">{posterError}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="flex gap-2 pt-1">
           <Button size="sm" variant="premium" onClick={() => onSave({
             name, slug, minWidth: minW, maxWidth: maxW,
             maxFullWidth: hasExtra && maxFull > 0 ? maxFull : null,
             hasExtraField: hasExtra, minHeight: minH, maxHeight: maxH,
+            videoUrl: videoUrl.trim() ? videoUrl.trim() : null,
+            posterUrl: posterUrl.trim() ? posterUrl.trim() : null,
           })} disabled={!name.trim() || !slug.trim()} className="gap-1">
             <Check className="w-3.5 h-3.5" /> Сохранить
           </Button>
@@ -309,8 +533,8 @@ function SubsystemForm({
   onCancel,
   paramDefs,
 }: {
-  initial?: { name: string; minWidth: number; maxWidth: number; params: Record<string, unknown>; formulas?: Record<string, string> | null };
-  onSave: (data: { name: string; minWidth: number; maxWidth: number; params: Record<string, number>; formulas: Record<string, string> }) => void;
+  initial?: { name: string; minWidth: number; maxWidth: number; params: Record<string, unknown>; formulas?: Record<string, string> | null; videoUrl?: string | null; posterUrl?: string | null };
+  onSave: (data: { name: string; minWidth: number; maxWidth: number; params: Record<string, number>; formulas: Record<string, string>; videoUrl: string | null; posterUrl: string | null }) => void;
   onCancel: () => void;
   paramDefs: ParamDef[];
 }) {
@@ -334,6 +558,58 @@ function SubsystemForm({
   const [formulas, setFormulas] = useState<Record<string, string>>(
     (initial?.formulas as Record<string, string>) ?? {}
   );
+
+  // Video + Poster upload state — аналогично SystemForm.
+  const [videoUrl, setVideoUrl] = useState<string>(initial?.videoUrl ?? "");
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoError, setVideoError] = useState("");
+  const videoFileRef = useRef<HTMLInputElement>(null);
+  const [posterUrl, setPosterUrl] = useState<string>(initial?.posterUrl ?? "");
+  const [uploadingPoster, setUploadingPoster] = useState(false);
+  const [posterError, setPosterError] = useState("");
+  const posterFileRef = useRef<HTMLInputElement>(null);
+
+  async function handleVideoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingVideo(true);
+    setVideoError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
+        setVideoUrl(data.url);
+      } else {
+        setVideoError(data.error || "Не удалось загрузить видео");
+      }
+    } finally {
+      setUploadingVideo(false);
+      if (videoFileRef.current) videoFileRef.current.value = "";
+    }
+  }
+
+  async function handlePosterUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPoster(true);
+    setPosterError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
+        setPosterUrl(data.url);
+      } else {
+        setPosterError(data.error || "Не удалось загрузить постер");
+      }
+    } finally {
+      setUploadingPoster(false);
+      if (posterFileRef.current) posterFileRef.current.value = "";
+    }
+  }
 
   // Which param is showing formula editor
   const [formulaOpenKey, setFormulaOpenKey] = useState<string | null>(null);
@@ -393,7 +669,11 @@ function SubsystemForm({
   function handleSave() {
     const paramsObj: Record<string, number> = {};
     params.forEach((p) => { paramsObj[p.key] = p.value; });
-    onSave({ name, minWidth: minW, maxWidth: maxW, params: paramsObj, formulas });
+    onSave({
+      name, minWidth: minW, maxWidth: maxW, params: paramsObj, formulas,
+      videoUrl: videoUrl.trim() ? videoUrl.trim() : null,
+      posterUrl: posterUrl.trim() ? posterUrl.trim() : null,
+    });
   }
 
   return (
@@ -515,6 +795,128 @@ function SubsystemForm({
                 <p className="text-xs text-muted-foreground">Не найдено</p>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Видео подсистемы */}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Видео подсистемы</p>
+          <div className="flex items-start gap-3">
+            {videoUrl ? (
+              <video
+                key={videoUrl}
+                src={videoUrl}
+                className="w-32 h-20 rounded-lg object-cover bg-muted/40 border border-border"
+                muted
+                loop
+                autoPlay
+                playsInline
+                preload="auto"
+                controls
+                onLoadedMetadata={(e) => {
+                  // Если первый кадр чёрный (часто у видео с fade-in),
+                  // перемотаем на 0.5 секунды — покажется уже наполненный кадр.
+                  const v = e.currentTarget;
+                  if (v.duration && v.duration > 0.6) {
+                    try { v.currentTime = 0.5; } catch { /* ignore */ }
+                  }
+                  v.play().catch(() => { /* autoplay заблокирован */ });
+                }}
+                onError={(e) => {
+                  const v = e.currentTarget;
+                  console.error("[admin/systems] video error:", v.error?.code, v.error?.message, videoUrl);
+                }}
+              />
+            ) : (
+              <div className="w-32 h-20 rounded-lg bg-muted flex items-center justify-center border border-dashed border-border text-[10px] text-muted-foreground text-center px-2">
+                Видео не загружено
+              </div>
+            )}
+            <div className="space-y-1.5 flex-1">
+              <input
+                ref={videoFileRef}
+                type="file"
+                accept="video/webm,video/mp4,.webm,.mp4"
+                className="hidden"
+                onChange={handleVideoUpload}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => videoFileRef.current?.click()}
+                disabled={uploadingVideo}
+              >
+                {uploadingVideo ? "Загрузка…" : videoUrl ? "Заменить" : "Загрузить"}
+              </Button>
+              {videoUrl && (
+                <button
+                  type="button"
+                  onClick={() => setVideoUrl("")}
+                  className="text-[9px] text-muted-foreground hover:text-destructive cursor-pointer block"
+                >
+                  Удалить
+                </button>
+              )}
+              <p className="text-[10px] text-muted-foreground leading-snug max-w-[260px]">
+                Форматы: <span className="font-semibold">WebM</span> (рекомендуется) или MP4. Лимит 30 МБ.
+              </p>
+              {videoError && (
+                <p className="text-[10px] text-destructive">{videoError}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Постер подсистемы */}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Постер (превью)</p>
+          <div className="flex items-start gap-3">
+            {posterUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={posterUrl}
+                alt=""
+                className="w-32 h-20 rounded-lg object-cover bg-muted/40 border border-border"
+              />
+            ) : (
+              <div className="w-32 h-20 rounded-lg bg-muted flex items-center justify-center border border-dashed border-border text-[10px] text-muted-foreground text-center px-2">
+                Постер не загружен
+              </div>
+            )}
+            <div className="space-y-1.5 flex-1">
+              <input
+                ref={posterFileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml,.png,.jpg,.jpeg,.webp,.svg"
+                className="hidden"
+                onChange={handlePosterUpload}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => posterFileRef.current?.click()}
+                disabled={uploadingPoster}
+              >
+                {uploadingPoster ? "Загрузка…" : posterUrl ? "Заменить" : "Загрузить"}
+              </Button>
+              {posterUrl && (
+                <button
+                  type="button"
+                  onClick={() => setPosterUrl("")}
+                  className="text-[9px] text-muted-foreground hover:text-destructive cursor-pointer block"
+                >
+                  Удалить
+                </button>
+              )}
+              <p className="text-[10px] text-muted-foreground leading-snug max-w-[260px]">
+                Картинка-превью видео. PNG, JPG, WebP, SVG.
+              </p>
+              {posterError && (
+                <p className="text-[10px] text-destructive">{posterError}</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -839,14 +1241,14 @@ export default function SystemsPage() {
   }
 
   /* ── Subsystem handlers ── */
-  async function handleCreateSub(data: { name: string; minWidth: number; maxWidth: number; params: Record<string, number>; formulas: Record<string, string> }) {
+  async function handleCreateSub(data: { name: string; minWidth: number; maxWidth: number; params: Record<string, number>; formulas: Record<string, string>; videoUrl: string | null; posterUrl: string | null }) {
     if (!selectedId) return;
     await fetch("/api/subsystems", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemId: selectedId, ...data }) });
     setAddingSub(false);
     await fetchSystems();
   }
 
-  async function handleUpdateSub(id: string, data: { name: string; minWidth: number; maxWidth: number; params: Record<string, number>; formulas: Record<string, string> }) {
+  async function handleUpdateSub(id: string, data: { name: string; minWidth: number; maxWidth: number; params: Record<string, number>; formulas: Record<string, string>; videoUrl: string | null; posterUrl: string | null }) {
     await fetch("/api/subsystems", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...data }) });
     setEditingSubId(null);
     await fetchSystems();
@@ -938,7 +1340,22 @@ export default function SystemsPage() {
                 editingSystemId === sys.id ? (
                   <SystemForm
                     key={sys.id}
-                    initial={sys}
+                    initial={{
+                      name: sys.name,
+                      slug: sys.slug,
+                      minWidth: sys.minWidth,
+                      maxWidth: sys.maxWidth,
+                      maxFullWidth: sys.maxFullWidth,
+                      hasExtraField: sys.hasExtraField,
+                      minHeight: sys.minHeight,
+                      maxHeight: sys.maxHeight,
+                      // У старых систем (cascade/angle/etc.) videoUrl в БД ещё
+                      // не заполнен — берём fallback из hardcoded реестра
+                      // systemMedia (порт из saga_calc). Пользователь увидит
+                      // существующее видео и сможет его заменить.
+                      videoUrl: sys.videoUrl ?? systemMedia[sys.slug]?.video ?? null,
+                      posterUrl: sys.posterUrl ?? systemMedia[sys.slug]?.poster ?? null,
+                    }}
                     onSave={(data) => handleUpdateSystem(sys.id, data)}
                     onCancel={() => setEditingSystemId(null)}
                   />
@@ -1041,7 +1458,23 @@ export default function SystemsPage() {
                     {addingSub && <SubsystemForm paramDefs={paramDefs} onSave={handleCreateSub} onCancel={() => setAddingSub(false)} />}
                     {selectedSystem.subsystems.map((sub) =>
                       editingSubId === sub.id ? (
-                        <SubsystemForm key={sub.id} paramDefs={paramDefs} initial={sub} onSave={(data) => handleUpdateSub(sub.id, data)} onCancel={() => setEditingSubId(null)} />
+                        <SubsystemForm
+                          key={sub.id}
+                          paramDefs={paramDefs}
+                          initial={{
+                            name: sub.name,
+                            minWidth: sub.minWidth,
+                            maxWidth: sub.maxWidth,
+                            params: sub.params,
+                            formulas: sub.formulas,
+                            // Fallback на hardcoded реестр subsystemVideos для старых
+                            // подсистем, у которых videoUrl ещё не сохранён в БД.
+                            videoUrl: sub.videoUrl ?? subsystemVideos[selectedSystem.slug]?.[sub.name] ?? null,
+                            posterUrl: sub.posterUrl ?? null,
+                          }}
+                          onSave={(data) => handleUpdateSub(sub.id, data)}
+                          onCancel={() => setEditingSubId(null)}
+                        />
                       ) : (
                         <Card key={sub.id} className="hover:border-brand-200 transition-colors">
                           <CardContent className="p-3.5 flex items-center justify-between">

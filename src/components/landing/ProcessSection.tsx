@@ -4,6 +4,8 @@ import { motion, useScroll, useTransform, useMotionValueEvent } from "framer-mot
 import { useRef, useState } from "react";
 import { Ruler, FileCheck, CreditCard, Clock, ScanLine, Factory, Hammer, Home } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Editable } from "@/components/site-edit/Editable";
+import { useSiteEdit } from "@/components/site-edit/SiteEditProvider";
 
 const steps = [
   { icon: Ruler, number: "01", title: "Черновой замер проёма", duration: "1–2 дня", day: 1, note: "Специалист выезжает к Вам для предварительного обмера и оценки условий монтажа" },
@@ -20,6 +22,7 @@ const TOTAL_DAYS = 15;
 export function ProcessSection() {
   const sectionRef = useRef<HTMLElement>(null);
   const [activeStep, setActiveStep] = useState(0);
+  const { get } = useSiteEdit();
 
   const { scrollYProgress } = useScroll({
     target: sectionRef,
@@ -74,13 +77,15 @@ export function ProcessSection() {
                 <div className="flex items-center gap-3 mb-6">
                   <div className="w-8 h-[1px]" style={{ backgroundColor: "var(--saga-accent)" }} />
                   <span className="text-[11px] font-medium uppercase tracking-[0.3em]" style={{ color: "var(--saga-accent)" }}>
-                    Процесс
+                    <Editable contentKey="home.process.eyebrow" defaultValue="Процесс" as="span" />
                   </span>
                 </div>
 
                 <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight leading-[1.1] mb-8">
-                  Как всё{" "}
-                  <span style={{ color: "var(--saga-accent)" }}>происходит?</span>
+                  <Editable contentKey="home.process.title" defaultValue="Как всё" as="span" />{" "}
+                  <span style={{ color: "var(--saga-accent)" }}>
+                    <Editable contentKey="home.process.title_accent" defaultValue="происходит?" as="span" />
+                  </span>
                 </h2>
 
                 {/* Active step showcase */}
@@ -88,6 +93,7 @@ export function ProcessSection() {
                   {steps.map((step, i) => {
                     const isActive = i === activeStep;
                     const StepIcon = step.icon;
+                    const idx = i + 1;
                     return (
                       <motion.div
                         key={step.number}
@@ -112,21 +118,40 @@ export function ProcessSection() {
                           </div>
                           <div>
                             <span className="text-[10px] font-bold tracking-[0.2em] block" style={{ color: "var(--saga-accent)" }}>
-                              ШАГ {step.number}
+                              <Editable
+                                contentKey={`home.process.item${idx}_step_label`}
+                                defaultValue={`ШАГ ${step.number}`}
+                                as="span"
+                              />
                             </span>
                             {step.duration && (
-                              <span className="text-xs text-white/30">{step.duration}</span>
+                              <span className="text-xs text-white/30">
+                                <Editable
+                                  contentKey={`home.process.item${idx}_duration`}
+                                  defaultValue={step.duration}
+                                  as="span"
+                                />
+                              </span>
                             )}
                           </div>
                         </div>
 
                         <h3 className="font-display text-2xl lg:text-3xl font-bold text-white mb-3">
-                          {step.title}
+                          <Editable
+                            contentKey={`home.process.item${idx}_title`}
+                            defaultValue={step.title}
+                            as="span"
+                          />
                         </h3>
 
                         {step.note && (
                           <p className="text-sm text-white/35 leading-relaxed max-w-sm">
-                            {step.note}
+                            <Editable
+                              contentKey={`home.process.item${idx}_note`}
+                              defaultValue={step.note}
+                              as="span"
+                              multiline
+                            />
                           </p>
                         )}
                       </motion.div>
@@ -138,11 +163,15 @@ export function ProcessSection() {
                 <div className="mt-8 pt-6" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                   <div className="flex items-baseline gap-3">
                     <span className="font-display text-3xl lg:text-4xl font-bold" style={{ color: "var(--saga-accent)" }}>
-                      10–15
+                      <Editable contentKey="home.process.total_value" defaultValue="10–15" as="span" />
                     </span>
-                    <span className="text-sm text-white/35">рабочих дней</span>
+                    <span className="text-sm text-white/35">
+                      <Editable contentKey="home.process.total_unit" defaultValue="рабочих дней" as="span" />
+                    </span>
                   </div>
-                  <p className="text-xs text-white/20 mt-1">от замера до готовой двери</p>
+                  <p className="text-xs text-white/20 mt-1">
+                    <Editable contentKey="home.process.total_caption" defaultValue="от замера до готовой двери" as="span" />
+                  </p>
                 </div>
               </div>
 
@@ -168,6 +197,10 @@ export function ProcessSection() {
                       const isActive = i === activeStep;
                       const isPast = i < activeStep;
                       const StepIcon = step.icon;
+                      const idx = i + 1;
+                      // Берём актуальные значения из SiteContent (синхронизация с активной карточкой слева).
+                      const liveTitle = get(`home.process.item${idx}_title`, step.title);
+                      const liveDuration = get(`home.process.item${idx}_duration`, step.duration);
 
                       return (
                         <motion.div
@@ -231,12 +264,12 @@ export function ProcessSection() {
                                     isActive ? "text-white" : isPast ? "text-white/50" : "text-white/25"
                                   )}
                                 >
-                                  {step.title}
+                                  {liveTitle}
                                 </span>
                               </div>
                             </div>
 
-                            {step.duration && (
+                            {liveDuration && (
                               <span
                                 className={cn(
                                   "text-[11px] font-medium shrink-0 px-3 py-1 rounded-full transition-all duration-300",
@@ -245,7 +278,7 @@ export function ProcessSection() {
                                     : "text-white/15"
                                 )}
                               >
-                                {step.duration}
+                                {liveDuration}
                               </span>
                             )}
                           </motion.div>

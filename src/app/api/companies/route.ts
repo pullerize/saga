@@ -1,8 +1,30 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuth, requireRole } from "@/lib/auth-helpers";
 
 const DEFAULT_COMPANY_NAME = "Saga Group";
+
+interface Showroom {
+  name: string;
+  address: string;
+}
+
+// Нормализует входящий список шоурумов: оставляет только записи, где есть
+// название или адрес, обрезает пробелы и ограничивает количество/длину.
+function normalizeShowrooms(input: unknown): Showroom[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((raw) => {
+      const r = raw as Record<string, unknown>;
+      return {
+        name: String(r?.name ?? "").trim().slice(0, 200),
+        address: String(r?.address ?? "").trim().slice(0, 500),
+      };
+    })
+    .filter((s) => s.name || s.address)
+    .slice(0, 50);
+}
 
 /**
  * Возвращает список компаний. Если в таблице нет ни одной — создаёт
@@ -16,7 +38,7 @@ async function listCompanies() {
   }
   return prisma.company.findMany({
     orderBy: { name: "asc" },
-    select: { id: true, name: true, logoUrl: true, createdAt: true },
+    select: { id: true, name: true, logoUrl: true, showrooms: true, createdAt: true },
   });
 }
 
@@ -36,12 +58,15 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const name = (body?.name ?? "").trim();
   const logoUrl = body?.logoUrl?.trim() || null;
+  const showrooms = normalizeShowrooms(body?.showrooms);
   if (!name) return NextResponse.json({ error: "Имя компании обязательно" }, { status: 400 });
 
   const exists = await prisma.company.findUnique({ where: { name } });
   if (exists) return NextResponse.json({ error: "Компания с таким именем уже существует" }, { status: 409 });
 
-  const company = await prisma.company.create({ data: { name, logoUrl } });
+  const company = await prisma.company.create({
+    data: { name, logoUrl, showrooms: showrooms as unknown as Prisma.InputJsonValue },
+  });
   return NextResponse.json(company, { status: 201 });
 }
 
@@ -57,7 +82,7 @@ export async function PUT(req: Request) {
   const existing = await prisma.company.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "Компания не найдена" }, { status: 404 });
 
-  const data: { name?: string; logoUrl?: string | null } = {};
+  const data: { name?: string; logoUrl?: string | null; showrooms?: Prisma.InputJsonValue } = {};
   if (typeof body.name === "string") {
     const newName = body.name.trim();
     if (!newName) return NextResponse.json({ error: "Имя не может быть пустым" }, { status: 400 });
@@ -69,6 +94,9 @@ export async function PUT(req: Request) {
   }
   if (Object.prototype.hasOwnProperty.call(body, "logoUrl")) {
     data.logoUrl = body.logoUrl?.trim() || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "showrooms")) {
+    data.showrooms = normalizeShowrooms(body.showrooms) as unknown as Prisma.InputJsonValue;
   }
 
   const company = await prisma.company.update({ where: { id }, data });

@@ -3,6 +3,7 @@
 import { motion, useScroll, useTransform, useMotionValue, animate } from "framer-motion";
 import { useRef, useState, useCallback } from "react";
 import { ArrowRight, Phone, Check, ChevronRight } from "lucide-react";
+import { Editable } from "@/components/site-edit/Editable";
 
 export function CTAConsultation() {
   const ref = useRef<HTMLElement>(null);
@@ -178,16 +179,18 @@ export function CTAConsultation() {
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-8 h-[1px]" style={{ backgroundColor: "var(--saga-accent)" }} />
                 <span className="text-[11px] font-medium uppercase tracking-[0.3em]" style={{ color: "var(--saga-accent)" }}>
-                  Консультация
+                  <Editable contentKey="home.cta.eyebrow" defaultValue="Консультация" as="span" />
                 </span>
               </div>
 
               <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight leading-[1.08]">
-                Не знаете, что
+                <Editable contentKey="home.cta.title_line1" defaultValue="Не знаете, что" as="span" />
                 <br />
-                именно Вам{" "}
+                <Editable contentKey="home.cta.title_line2" defaultValue="именно Вам" as="span" />{" "}
                 <span className="relative">
-                  <span style={{ color: "var(--saga-accent)" }}>нужно?</span>
+                  <span style={{ color: "var(--saga-accent)" }}>
+                    <Editable contentKey="home.cta.title_accent" defaultValue="нужно?" as="span" />
+                  </span>
                   {/* Underline accent */}
                   <motion.span
                     className="absolute -bottom-1 left-0 h-[2px] rounded-full"
@@ -201,21 +204,36 @@ export function CTAConsultation() {
               </h2>
 
               <p className="mt-5 text-sm sm:text-base leading-relaxed text-white/40 max-w-md">
-                Мы поможем подобрать оптимальное решение для Вашего пространства.
-                Оставьте номер телефона, и наш специалист свяжется с Вами
-                в течение 30 минут.
+                <Editable
+                  contentKey="home.cta.intro"
+                  defaultValue="Мы поможем подобрать оптимальное решение для Вашего пространства. Оставьте номер телефона, и наш специалист свяжется с Вами в течение 30 минут."
+                  as="span"
+                  multiline
+                />
               </p>
 
               {/* Trust markers */}
               <div className="mt-10 flex items-center gap-8">
                 {[
-                  { val: "30 мин", label: "время ответа" },
-                  { val: "Бесплатно", label: "консультация" },
-                  { val: "7 дней", label: "в неделю" },
+                  { idx: 1, val: "30 мин", label: "время ответа" },
+                  { idx: 2, val: "Бесплатно", label: "консультация" },
+                  { idx: 3, val: "7 дней", label: "в неделю" },
                 ].map((item) => (
                   <div key={item.label}>
-                    <p className="text-lg font-display font-bold text-white">{item.val}</p>
-                    <p className="text-[10px] uppercase tracking-[0.15em] text-white/25 mt-0.5">{item.label}</p>
+                    <p className="text-lg font-display font-bold text-white">
+                      <Editable
+                        contentKey={`home.cta.trust${item.idx}_value`}
+                        defaultValue={item.val}
+                        as="span"
+                      />
+                    </p>
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-white/25 mt-0.5">
+                      <Editable
+                        contentKey={`home.cta.trust${item.idx}_label`}
+                        defaultValue={item.label}
+                        as="span"
+                      />
+                    </p>
                   </div>
                 ))}
               </div>
@@ -243,10 +261,10 @@ export function CTAConsultation() {
                     </div>
                     <div>
                       <h3 className="font-display text-base font-semibold text-white">
-                        Оставьте заявку
+                        <Editable contentKey="home.cta.form_title" defaultValue="Оставьте заявку" as="span" />
                       </h3>
                       <p className="text-[11px] text-white/30">
-                        Перезвоним в течение 30 минут
+                        <Editable contentKey="home.cta.form_subtitle" defaultValue="Перезвоним в течение 30 минут" as="span" />
                       </p>
                     </div>
                   </div>
@@ -256,7 +274,7 @@ export function CTAConsultation() {
                     {/* Name */}
                     <div>
                       <label className="text-[10px] uppercase tracking-[0.15em] text-white/30 mb-2 block">
-                        Ваше имя
+                        <Editable contentKey="home.cta.label_name" defaultValue="Ваше имя" as="span" />
                       </label>
                       <input
                         type="text"
@@ -277,7 +295,7 @@ export function CTAConsultation() {
                     {/* Phone */}
                     <div>
                       <label className="text-[10px] uppercase tracking-[0.15em] text-white/30 mb-2 block">
-                        Номер телефона
+                        <Editable contentKey="home.cta.label_phone" defaultValue="Номер телефона" as="span" />
                       </label>
                       <input
                         type="tel"
@@ -324,7 +342,7 @@ export function CTAConsultation() {
                             style={{ color: "var(--saga-accent)" }}
                           >
                             <Check className="w-4 h-4" />
-                            Подтверждено
+                            <Editable contentKey="home.cta.slider_verified" defaultValue="Подтверждено" as="span" />
                           </motion.span>
                         ) : (
                           <motion.span
@@ -332,7 +350,7 @@ export function CTAConsultation() {
                             transition={dragging ? { duration: 0.15 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
                             className="text-xs font-medium tracking-wide text-white/30"
                           >
-                            Сдвиньте для подтверждения →
+                            <Editable contentKey="home.cta.slider_hint" defaultValue="Сдвиньте для подтверждения →" as="span" />
                           </motion.span>
                         )}
                       </div>
@@ -385,7 +403,7 @@ export function CTAConsultation() {
                     >
                       <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/25 to-transparent" />
                       <span className="relative inline-flex items-center gap-2">
-                        Получить консультацию
+                        <Editable contentKey="home.cta.submit" defaultValue="Получить консультацию" as="span" />
                         <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                       </span>
                     </button>
@@ -394,32 +412,43 @@ export function CTAConsultation() {
                   {/* Separator */}
                   <div className="flex items-center gap-3 my-6">
                     <div className="flex-1 h-[1px] bg-white/[0.06]" />
-                    <span className="text-[10px] text-white/20 uppercase tracking-wider">или</span>
+                    <span className="text-[10px] text-white/20 uppercase tracking-wider">
+                      <Editable contentKey="home.cta.divider_or" defaultValue="или" as="span" />
+                    </span>
                     <div className="flex-1 h-[1px] bg-white/[0.06]" />
                   </div>
 
                   {/* Quick actions */}
                   <div className="grid grid-cols-2 gap-3">
                     <a
-                      href="#"
+                      href="https://www.instagram.com/perfectsystem.uz/"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="flex items-center justify-center gap-2 h-11 rounded-xl text-xs font-medium text-white/50 transition-all hover:text-white hover:bg-white/[0.04]"
                       style={{ border: "1px solid rgba(255,255,255,0.06)" }}
                     >
                       <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
-                      Instagram
+                      <Editable contentKey="home.cta.social_instagram" defaultValue="Instagram" as="span" />
                     </a>
                     <a
-                      href="#"
+                      href="https://t.me/Foziljon_K"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="flex items-center justify-center gap-2 h-11 rounded-xl text-xs font-medium text-white/50 transition-all hover:text-white hover:bg-white/[0.04]"
                       style={{ border: "1px solid rgba(255,255,255,0.06)" }}
                     >
                       <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0h-.056zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-                      Telegram
+                      <Editable contentKey="home.cta.social_telegram" defaultValue="Telegram" as="span" />
                     </a>
                   </div>
 
                   <p className="mt-5 text-[10px] text-white/15 text-center leading-relaxed">
-                    Нажимая кнопку, Вы соглашаетесь с обработкой персональных данных
+                    <Editable
+                      contentKey="home.cta.policy"
+                      defaultValue="Нажимая кнопку, Вы соглашаетесь с обработкой персональных данных"
+                      as="span"
+                      multiline
+                    />
                   </p>
                 </div>
               </div>

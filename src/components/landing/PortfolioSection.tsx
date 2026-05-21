@@ -4,6 +4,9 @@ import { motion, useScroll, useTransform } from "framer-motion";
 import { useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Editable } from "@/components/site-edit/Editable";
+import { useSiteEdit } from "@/components/site-edit/SiteEditProvider";
+import { EditableMedia } from "@/components/site-edit/EditableMedia";
 
 const projects = [
   {
@@ -91,15 +94,17 @@ export function PortfolioSection() {
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-[1px]" style={{ backgroundColor: "var(--saga-accent)" }} />
               <span className="text-[11px] font-medium uppercase tracking-[0.3em]" style={{ color: "var(--saga-accent)" }}>
-                Портфолио
+                <Editable contentKey="home.portfolio.eyebrow" defaultValue="Портфолио" as="span" />
               </span>
             </div>
             <h2
               className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1]"
               style={{ color: "var(--saga-primary)" }}
             >
-              Наши{" "}
-              <span style={{ color: "var(--saga-accent)" }}>работы</span>
+              <Editable contentKey="home.portfolio.title" defaultValue="Наши" as="span" />{" "}
+              <span style={{ color: "var(--saga-accent)" }}>
+                <Editable contentKey="home.portfolio.title_accent" defaultValue="работы" as="span" />
+              </span>
             </h2>
           </div>
 
@@ -153,44 +158,16 @@ export function PortfolioSection() {
               <div
                 className={cn(
                   "relative overflow-hidden rounded-2xl transition-all duration-500",
-                  isEven ? "aspect-[3/4]" : "aspect-[4/5]",
+                  "aspect-square",
                 )}
               >
-                {/* Placeholder */}
-                <div
-                  className="absolute inset-0 transition-transform duration-700 group-hover:scale-105"
-                  style={{
-                    backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-100)",
-                  }}
-                >
-                  {/* Inner gradient */}
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      background: isEven
-                        ? "linear-gradient(180deg, rgba(212,181,150,0.08) 0%, transparent 40%, rgba(0,0,0,0.3) 100%)"
-                        : "linear-gradient(180deg, rgba(22,40,50,0.02) 0%, transparent 40%, rgba(22,40,50,0.1) 100%)",
-                    }}
-                  />
-
-                  {/* Watermark number */}
-                  <div className="absolute top-6 right-6 font-display font-bold select-none" style={{
-                    fontSize: "4rem",
-                    lineHeight: 1,
-                    color: isEven ? "rgba(255,255,255,0.04)" : "rgba(22,40,50,0.04)",
-                  }}>
-                    {String(i + 1).padStart(2, "0")}
-                  </div>
-
-                  {/* Center placeholder text */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xs tracking-[0.2em] uppercase" style={{
-                      color: isEven ? "rgba(255,255,255,0.15)" : "rgba(22,40,50,0.12)",
-                    }}>
-                      Фото проекта
-                    </span>
-                  </div>
-                </div>
+                {/* Карточка проекта — если в CMS загружена картинка, показываем
+                    её на всю карточку. Иначе — стандартный цветной плейсхолдер. */}
+                <ProjectCardMedia
+                  projectId={project.id}
+                  isEven={isEven}
+                  indexLabel={String(i + 1).padStart(2, "0")}
+                />
 
                 {/* Hover overlay */}
                 <div className="absolute inset-0 flex items-end p-6 opacity-0 group-hover:opacity-100 transition-all duration-500">
@@ -216,13 +193,21 @@ export function PortfolioSection() {
                         className="text-base lg:text-lg font-display font-bold transition-colors duration-300"
                         style={{ color: isEven ? "white" : "var(--saga-primary)" }}
                       >
-                        {project.label}
+                        <Editable
+                          contentKey={`home.portfolio.item${project.id}_label`}
+                          defaultValue={project.label}
+                          as="span"
+                        />
                       </p>
                       <p
                         className="text-xs mt-1 transition-colors duration-300"
                         style={{ color: isEven ? "rgba(255,255,255,0.4)" : "rgba(22,40,50,0.35)" }}
                       >
-                        {project.location}
+                        <Editable
+                          contentKey={`home.portfolio.item${project.id}_location`}
+                          defaultValue={project.location}
+                          as="span"
+                        />
                       </p>
                     </div>
                     <span
@@ -232,7 +217,11 @@ export function PortfolioSection() {
                         color: isEven ? "rgba(255,255,255,0.5)" : "rgba(22,40,50,0.3)",
                       }}
                     >
-                      {project.year}
+                      <Editable
+                        contentKey={`home.portfolio.item${project.id}_year`}
+                        defaultValue={project.year}
+                        as="span"
+                      />
                     </span>
                   </div>
                 </div>
@@ -260,5 +249,107 @@ export function PortfolioSection() {
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * Карточка проекта: если в SiteContent загружена картинка
+ * (home.portfolio.itemN_image) — она показывается на всю площадь карточки.
+ * Иначе — стандартный цветной плейсхолдер с надписью «Фото проекта».
+ * В режиме редактирования всегда виден EditableMedia с кнопкой «Заменить».
+ */
+function ProjectCardMedia({
+  projectId,
+  isEven,
+  indexLabel,
+}: {
+  projectId: number;
+  isEven: boolean;
+  indexLabel: string;
+}) {
+  const { editing, get } = useSiteEdit();
+  const imageKey = `home.portfolio.item${projectId}_image`;
+  const imageUrl = get(imageKey, "");
+
+  // В CMS-режиме — всегда показываем EditableMedia, чтобы был доступ к
+  // загрузке. Если ещё нет картинки — пользователь увидит маленький
+  // плейсхолдер; после загрузки фото развернётся на всю карточку.
+  if (editing || imageUrl) {
+    return (
+      <div
+        className="absolute inset-0 transition-transform duration-700 group-hover:scale-105"
+        style={{ backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-100)" }}
+      >
+        {imageUrl ? (
+          <EditableMedia
+            contentKey={imageKey}
+            defaultValue=""
+            mediaType="image"
+            alt="Фото проекта"
+            wrapperClassName="absolute inset-0 w-full h-full"
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          // В режиме редактирования без фото — упрощённый плейсхолдер с
+          // активной кнопкой «Заменить» в углу.
+          <div
+            className="absolute inset-0 flex items-center justify-center"
+            style={{
+              backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-100)",
+            }}
+          >
+            <EditableMedia
+              contentKey={imageKey}
+              defaultValue=""
+              mediaType="image"
+              alt=""
+              className="hidden"
+            />
+            <span className="text-xs tracking-[0.2em] uppercase" style={{
+              color: isEven ? "rgba(255,255,255,0.5)" : "rgba(22,40,50,0.45)",
+            }}>
+              Кликните «Заменить» →
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Обычный режим без фото — стандартный плейсхолдер.
+  return (
+    <div
+      className="absolute inset-0 transition-transform duration-700 group-hover:scale-105"
+      style={{
+        backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-100)",
+      }}
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          background: isEven
+            ? "linear-gradient(180deg, rgba(212,181,150,0.08) 0%, transparent 40%, rgba(0,0,0,0.3) 100%)"
+            : "linear-gradient(180deg, rgba(22,40,50,0.02) 0%, transparent 40%, rgba(22,40,50,0.1) 100%)",
+        }}
+      />
+      <div className="absolute top-6 right-6 font-display font-bold select-none" style={{
+        fontSize: "4rem",
+        lineHeight: 1,
+        color: isEven ? "rgba(255,255,255,0.04)" : "rgba(22,40,50,0.04)",
+      }}>
+        {indexLabel}
+      </div>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-xs tracking-[0.2em] uppercase" style={{
+          color: isEven ? "rgba(255,255,255,0.15)" : "rgba(22,40,50,0.12)",
+        }}>
+          <Editable
+            contentKey={`home.portfolio.item${projectId}_placeholder`}
+            defaultValue="Фото проекта"
+            as="span"
+          />
+        </span>
+      </div>
+    </div>
   );
 }

@@ -5,7 +5,7 @@ import { signOut } from "next-auth/react";
 import { CompanyBrand } from "@/components/shared/CompanyBrand";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, LogOut } from "lucide-react";
+import { Users, LogOut, DollarSign } from "lucide-react";
 
 const navGroups = [
   {
@@ -16,6 +16,17 @@ const navGroups = [
         label: "Карточки клиентов",
         icon: Users,
         description: "Создать и вести карточки клиентов",
+      },
+    ],
+  },
+  {
+    title: "Настройки",
+    items: [
+      {
+        href: "/partner/pricing",
+        label: "Мои цены",
+        icon: DollarSign,
+        description: "Цены на компоненты вашей компании (применяются только к вашим расчётам)",
       },
     ],
   },

@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireAuth, requireRole } from "@/lib/auth-helpers";
+import { requireRole } from "@/lib/auth-helpers";
 
-// GET — список систем. Доступен залогиненным (нужен в калькуляторе/админке).
+// GET — публичный список систем. Используется в гостевом каталоге на главной
+// странице (карточки систем для выбора), поэтому без авторизации.
+// Возвращаются ТОЛЬКО активные системы — неактивные/черновики скрыты от гостя.
 export async function GET() {
-  const { error } = await requireAuth();
-  if (error) return error;
   const systems = await prisma.doorSystem.findMany({
+    where: { isActive: true },
     orderBy: { sortOrder: "asc" },
-    include: { subsystems: { orderBy: { sortOrder: "asc" } } },
+    include: {
+      subsystems: {
+        where: { isActive: true },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
   });
   return NextResponse.json(systems);
 }
@@ -40,6 +46,8 @@ export async function POST(req: Request) {
         hasExtraField: !!body.hasExtraField,
         minHeight: Number.isFinite(body.minHeight) ? body.minHeight : 1800,
         maxHeight: Number.isFinite(body.maxHeight) ? body.maxHeight : 3500,
+        videoUrl: typeof body.videoUrl === "string" && body.videoUrl.trim() ? body.videoUrl.trim() : null,
+        posterUrl: typeof body.posterUrl === "string" && body.posterUrl.trim() ? body.posterUrl.trim() : null,
         sortOrder: count,
       },
     });
@@ -70,6 +78,13 @@ export async function PUT(req: Request) {
         hasExtraField: !!data.hasExtraField,
         minHeight: data.minHeight ?? 1800,
         maxHeight: data.maxHeight ?? 3500,
+        // videoUrl/posterUrl: undefined → не трогаем; null/строка → сохраняем.
+        ...(data.videoUrl !== undefined
+          ? { videoUrl: typeof data.videoUrl === "string" && data.videoUrl.trim() ? data.videoUrl.trim() : null }
+          : {}),
+        ...(data.posterUrl !== undefined
+          ? { posterUrl: typeof data.posterUrl === "string" && data.posterUrl.trim() ? data.posterUrl.trim() : null }
+          : {}),
       },
     });
     return NextResponse.json(system);

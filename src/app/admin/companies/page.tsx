@@ -10,18 +10,26 @@ import {
   ArrowLeft,
   Building2,
   Loader2,
+  MapPin,
   Pencil,
   Plus,
   Save,
+  Store,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
 
+interface Showroom {
+  name: string;
+  address: string;
+}
+
 interface Company {
   id: string;
   name: string;
   logoUrl: string | null;
+  showrooms: Showroom[] | null;
   createdAt: string;
 }
 
@@ -32,6 +40,7 @@ export default function AdminCompaniesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [showrooms, setShowrooms] = useState<Showroom[]>([]);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -52,6 +61,7 @@ export default function AdminCompaniesPage() {
     setEditingId(null);
     setName("");
     setLogoUrl(null);
+    setShowrooms([]);
     setError("");
     setView("form");
   }
@@ -60,8 +70,23 @@ export default function AdminCompaniesPage() {
     setEditingId(c.id);
     setName(c.name);
     setLogoUrl(c.logoUrl);
+    setShowrooms(Array.isArray(c.showrooms) ? c.showrooms : []);
     setError("");
     setView("form");
+  }
+
+  function addShowroom() {
+    setShowrooms((prev) => [...prev, { name: "", address: "" }]);
+  }
+
+  function updateShowroom(index: number, field: keyof Showroom, value: string) {
+    setShowrooms((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)),
+    );
+  }
+
+  function removeShowroom(index: number) {
+    setShowrooms((prev) => prev.filter((_, i) => i !== index));
   }
 
   function closeForm() {
@@ -97,9 +122,13 @@ export default function AdminCompaniesPage() {
     try {
       const url = "/api/companies";
       const isEdit = !!editingId;
+      // Перед отправкой убираем полностью пустые строки шоурумов.
+      const cleanShowrooms = showrooms
+        .map((s) => ({ name: s.name.trim(), address: s.address.trim() }))
+        .filter((s) => s.name || s.address);
       const body = isEdit
-        ? { id: editingId, name: name.trim(), logoUrl }
-        : { name: name.trim(), logoUrl };
+        ? { id: editingId, name: name.trim(), logoUrl, showrooms: cleanShowrooms }
+        : { name: name.trim(), logoUrl, showrooms: cleanShowrooms };
       const res = await fetch(url, {
         method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -204,6 +233,12 @@ export default function AdminCompaniesPage() {
                             <p className="text-xs text-muted-foreground">
                               {isDefault ? "Компания по умолчанию (Saga Group)" : `ID: ${c.id.slice(0, 8)}…`}
                             </p>
+                            {Array.isArray(c.showrooms) && c.showrooms.length > 0 && (
+                              <p className="text-xs text-brand-600 mt-0.5 flex items-center gap-1">
+                                <Store className="w-3 h-3" />
+                                {c.showrooms.length} {c.showrooms.length === 1 ? "филиал" : c.showrooms.length < 5 ? "филиала" : "филиалов"}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div className="flex gap-2 shrink-0">
@@ -311,6 +346,69 @@ export default function AdminCompaniesPage() {
                         </p>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Шоурумы / филиалы */}
+                  <div className="pt-2 border-t border-border/60">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Store className="w-4 h-4 text-brand-600" />
+                        <label className="text-sm font-medium">Шоурумы / филиалы</label>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={addShowroom}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Добавить
+                      </Button>
+                    </div>
+
+                    {showrooms.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Филиалов пока нет. Нажмите «Добавить», чтобы указать название и адрес шоурума.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {showrooms.map((s, i) => (
+                          <div
+                            key={i}
+                            className="rounded-lg border border-border bg-muted/20 p-3 space-y-2"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={s.name}
+                                onChange={(e) => updateShowroom(i, "name", e.target.value)}
+                                placeholder="Название шоурума (напр. «Главный офис»)"
+                                className="flex-1"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                                onClick={() => removeShowroom(i)}
+                                title="Удалить филиал"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
+                              <Input
+                                value={s.address}
+                                onChange={(e) => updateShowroom(i, "address", e.target.value)}
+                                placeholder="Адрес (город, улица, дом)"
+                                className="flex-1"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {error && <p className="text-sm text-destructive font-medium">{error}</p>}

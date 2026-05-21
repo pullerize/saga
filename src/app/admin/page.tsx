@@ -16,6 +16,7 @@ import {
   FunctionSquare,
   LayoutGrid,
   LogOut,
+  Inbox,
 } from "lucide-react";
 
 interface NavItem {
@@ -35,6 +36,7 @@ const navGroups: NavGroup[] = [
     title: "Работа с клиентами",
     items: [
       { href: "/admin/calculator", label: "Карточка клиента", icon: Calculator, description: "Создать карточку клиента и расчёт" },
+      { href: "/admin/leads", label: "Заявки гостей", icon: Inbox, description: "Заявки с калькулятора от неавторизованных посетителей" },
     ],
   },
   {

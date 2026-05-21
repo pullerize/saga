@@ -2,6 +2,9 @@
 
 import { motion, useScroll, useTransform } from "framer-motion";
 import { useRef } from "react";
+import { Editable } from "@/components/site-edit/Editable";
+import { useSiteEdit } from "@/components/site-edit/SiteEditProvider";
+import { EditableMedia } from "@/components/site-edit/EditableMedia";
 
 const features = [
   {
@@ -42,8 +45,11 @@ const features = [
 ];
 
 function FeatureCard({ feature, index }: { feature: typeof features[0]; index: number }) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { editing, get } = useSiteEdit();
   const ref = useRef<HTMLDivElement>(null);
   const isEven = index % 2 === 0;
+  const idx = index + 1;
 
   const { scrollYProgress } = useScroll({
     target: ref,
@@ -82,7 +88,11 @@ function FeatureCard({ feature, index }: { feature: typeof features[0]; index: n
           className="font-display text-3xl sm:text-4xl lg:text-[2.75rem] font-bold tracking-tight leading-[1.1] mb-5"
           style={{ color: "var(--saga-primary)" }}
         >
-          {feature.title}
+          <Editable
+            contentKey={`home.features.item${idx}_title`}
+            defaultValue={feature.title}
+            as="span"
+          />
         </h3>
 
         {/* Description */}
@@ -90,7 +100,12 @@ function FeatureCard({ feature, index }: { feature: typeof features[0]; index: n
           className="text-sm sm:text-base leading-relaxed max-w-md mb-8"
           style={{ color: "rgba(22, 40, 50, 0.45)" }}
         >
-          {feature.description}
+          <Editable
+            contentKey={`home.features.item${idx}_description`}
+            defaultValue={feature.description}
+            as="span"
+            multiline
+          />
         </p>
 
         {/* CTA button */}
@@ -99,7 +114,11 @@ function FeatureCard({ feature, index }: { feature: typeof features[0]; index: n
           className="inline-flex items-center gap-2 h-10 px-5 rounded-full text-xs font-medium tracking-wide transition-all hover:bg-[rgba(22,40,50,0.05)]"
           style={{ border: "1px solid rgba(22,40,50,0.15)", color: "var(--saga-primary)" }}
         >
-          Подробнее
+          <Editable
+            contentKey={`home.features.item${idx}_cta`}
+            defaultValue="Подробнее"
+            as="span"
+          />
         </a>
       </motion.div>
 
@@ -107,54 +126,96 @@ function FeatureCard({ feature, index }: { feature: typeof features[0]; index: n
       <div className={`relative ${isEven ? "lg:order-2" : "lg:order-1"}`}>
         <motion.div
           style={{ scale: imageScale, y: imageY }}
-          className="relative aspect-[4/3] overflow-hidden"
+          className="relative aspect-square overflow-hidden"
         >
-          {/* Placeholder with premium styling */}
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-50)",
-            }}
-          >
-            {/* Inner gradient */}
-            <div
-              className="absolute inset-0"
-              style={{
-                background: isEven
-                  ? "linear-gradient(135deg, rgba(212,181,150,0.1) 0%, transparent 60%)"
-                  : "linear-gradient(135deg, rgba(22,40,50,0.03) 0%, transparent 60%)",
-              }}
-            />
-
-            {/* Large feature number watermark */}
-            <div className="absolute inset-0 flex items-center justify-center select-none pointer-events-none">
-              <span
-                className="font-display font-bold"
-                style={{
-                  fontSize: "clamp(8rem, 15vw, 14rem)",
-                  color: isEven ? "rgba(255,255,255,0.04)" : "rgba(22,40,50,0.04)",
-                }}
+          {/* Если в SiteContent (home.features.itemN_image) загружено фото —
+              показываем его на всю карточку. Иначе — стандартный плейсхолдер.
+              В режиме редактирования кнопка «Заменить» всегда доступна. */}
+          {(() => {
+            const imageKey = `home.features.item${idx}_image`;
+            const imageUrl = get(imageKey, "");
+            if (editing || imageUrl) {
+              return (
+                <div
+                  className="absolute inset-0"
+                  style={{ backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-50)" }}
+                >
+                  {imageUrl ? (
+                    <EditableMedia
+                      contentKey={imageKey}
+                      defaultValue=""
+                      mediaType="image"
+                      alt=""
+                      wrapperClassName="absolute inset-0 w-full h-full"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="absolute inset-0 flex items-center justify-center"
+                      style={{ backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-50)" }}
+                    >
+                      <EditableMedia
+                        contentKey={imageKey}
+                        defaultValue=""
+                        mediaType="image"
+                        alt=""
+                        className="hidden"
+                      />
+                      <span
+                        className="text-xs font-medium tracking-[0.2em] uppercase"
+                        style={{ color: isEven ? "rgba(255,255,255,0.5)" : "rgba(22,40,50,0.45)" }}
+                      >
+                        Кликните «Заменить» →
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            return (
+              <div
+                className="absolute inset-0"
+                style={{ backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-50)" }}
               >
-                {feature.number}
-              </span>
-            </div>
-
-            {/* Center text */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span
-                className="text-xs font-medium tracking-[0.2em] uppercase"
-                style={{ color: isEven ? "rgba(255,255,255,0.2)" : "rgba(22,40,50,0.15)" }}
-              >
-                Фото / Видео
-              </span>
-            </div>
-
-            {/* Corner accents */}
-            <div className="absolute top-6 left-6 w-10 h-[1px]" style={{ backgroundColor: isEven ? "rgba(212,181,150,0.2)" : "rgba(22,40,50,0.08)" }} />
-            <div className="absolute top-6 left-6 h-10 w-[1px]" style={{ backgroundColor: isEven ? "rgba(212,181,150,0.2)" : "rgba(22,40,50,0.08)" }} />
-            <div className="absolute bottom-6 right-6 w-10 h-[1px]" style={{ backgroundColor: isEven ? "rgba(212,181,150,0.2)" : "rgba(22,40,50,0.08)" }} />
-            <div className="absolute bottom-6 right-6 h-10 w-[1px]" style={{ backgroundColor: isEven ? "rgba(212,181,150,0.2)" : "rgba(22,40,50,0.08)" }} />
-          </div>
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background: isEven
+                      ? "linear-gradient(135deg, rgba(212,181,150,0.1) 0%, transparent 60%)"
+                      : "linear-gradient(135deg, rgba(22,40,50,0.03) 0%, transparent 60%)",
+                  }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center select-none pointer-events-none">
+                  <span
+                    className="font-display font-bold"
+                    style={{
+                      fontSize: "clamp(8rem, 15vw, 14rem)",
+                      color: isEven ? "rgba(255,255,255,0.04)" : "rgba(22,40,50,0.04)",
+                    }}
+                  >
+                    {feature.number}
+                  </span>
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span
+                    className="text-xs font-medium tracking-[0.2em] uppercase"
+                    style={{ color: isEven ? "rgba(255,255,255,0.2)" : "rgba(22,40,50,0.15)" }}
+                  >
+                    <Editable
+                      contentKey={`home.features.item${idx}_media_placeholder`}
+                      defaultValue="Фото / Видео"
+                      as="span"
+                    />
+                  </span>
+                </div>
+                {/* Corner accents */}
+                <div className="absolute top-6 left-6 w-10 h-[1px]" style={{ backgroundColor: isEven ? "rgba(212,181,150,0.2)" : "rgba(22,40,50,0.08)" }} />
+                <div className="absolute top-6 left-6 h-10 w-[1px]" style={{ backgroundColor: isEven ? "rgba(212,181,150,0.2)" : "rgba(22,40,50,0.08)" }} />
+                <div className="absolute bottom-6 right-6 w-10 h-[1px]" style={{ backgroundColor: isEven ? "rgba(212,181,150,0.2)" : "rgba(22,40,50,0.08)" }} />
+                <div className="absolute bottom-6 right-6 h-10 w-[1px]" style={{ backgroundColor: isEven ? "rgba(212,181,150,0.2)" : "rgba(22,40,50,0.08)" }} />
+              </div>
+            );
+          })()}
         </motion.div>
       </div>
     </motion.div>
@@ -182,17 +243,19 @@ export function FeaturesSection() {
                 className="text-[11px] font-medium uppercase tracking-[0.3em]"
                 style={{ color: "var(--saga-accent)" }}
               >
-                Для Вашего дома
+                <Editable contentKey="home.features.eyebrow" defaultValue="Для Вашего дома" as="span" />
               </span>
             </div>
             <h2
               className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1]"
               style={{ color: "var(--saga-primary)" }}
             >
-              Что делает наши
+              <Editable contentKey="home.features.title_line1" defaultValue="Что делает наши" as="span" />
               <br />
-              системы{" "}
-              <span style={{ color: "var(--saga-accent)" }}>особенными</span>
+              <Editable contentKey="home.features.title_line2" defaultValue="системы" as="span" />{" "}
+              <span style={{ color: "var(--saga-accent)" }}>
+                <Editable contentKey="home.features.title_accent" defaultValue="особенными" as="span" />
+              </span>
             </h2>
           </div>
 
@@ -200,8 +263,12 @@ export function FeaturesSection() {
             className="text-sm leading-relaxed max-w-sm lg:text-right"
             style={{ color: "rgba(22, 40, 50, 0.4)" }}
           >
-            Каждая деталь спроектирована с вниманием к Вашему комфорту,
-            безопасности и эстетике пространства.
+            <Editable
+              contentKey="home.features.intro"
+              defaultValue="Каждая деталь спроектирована с вниманием к Вашему комфорту, безопасности и эстетике пространства."
+              as="span"
+              multiline
+            />
           </p>
         </motion.div>
       </div>

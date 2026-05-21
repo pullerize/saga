@@ -41,7 +41,11 @@ model Company {
   id        String  @id @default(cuid())
   name      String  @unique
   logoUrl   String?
+  // Шоурумы / филиалы компании: Array<{ name: string, address: string }>.
+  // Редактируются вместе с компанией в админке (/admin/companies).
+  showrooms Json?
   users     User[]
+  prices    CompanyPrice[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -90,6 +94,10 @@ model Subsystem {
 
   params    Json // flexible JSON for all subsystem-specific parameters
   formulas  Json? // { "door_width": "(full_width + 32) / num_doors" }
+  // Кастомные диапазоны размеров для подбора схем «Вид системы»/«Вид сверху».
+  // Формат: { "heightBands": [min, t1, t2, max], "widthBands": [min, t1, t2, max] }.
+  // null → используются дефолтные пороги (см. lib/calculations/sizeCategory.ts).
+  sizeRanges Json?
 
   calculations Calculation[]
 
@@ -112,9 +120,30 @@ model Component {
   defaultPrice Float
 
   partnerPrices PartnerPrice[]
+  companyPrices CompanyPrice[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ── Company-scoped component prices ──
+// Переопределение цены компонента на уровне компании. Если у компании задана
+// своя цена компонента — в расчётах её карточек используется она, иначе
+// Component.defaultPrice. Меняется партнёром в /partner/pricing и применяется
+// только к его компании, не затрагивая остальные.
+model CompanyPrice {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  componentId String
+  component   Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  price       Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, componentId])
+  @@index([companyId])
 }
 
 model PartnerPrice {
@@ -183,18 +212,33 @@ model AdditionalService {
 // ── Doors (отдельные SVG двери для каждой подсистемы × шотланки) ──
 // Используются в слоте «Вид двери» в превью КП и PDF. При выборе пользователем
 // шотланки в калькуляторе — система автоматически подтягивает соответствующий SVG.
+// Общий контейнер для предзагруженных SVG-схем подсистемы.
+// viewType:
+//   "system" — «Вид системы»     (shotlanType = null)
+//   "top"    — «Вид сверху»       (shotlanType = null)
+//   "door"   — «Вид двери»        (shotlanType = тип шотланки из ShotlanOption.name)
+// На каждую комбинацию (systemSlug, subsystemName, viewType, [shotlanType])
+// и категорию (heightCategory × widthCategory) — одна SVG. Итого 9 для system,
+// 9 для top, 9×N_шотланок для door.
 model DoorScheme {
   id            String @id @default(cuid())
-  systemSlug    String                 // напр. "cascade"
-  subsystemName String                 // напр. "3+0"
-  shotlanType   String                 // соответствует ShotlanOption.name
-  svgContent    String                 // raw SVG
+  systemSlug    String
+  subsystemName String
+  viewType      String  @default("door") // "system" | "top" | "door"
+  shotlanType   String?                  // обязательно только для viewType="door"
+  svgContent    String                   // raw SVG
+  // Категории размера проёма (см. lib/calculations/sizeCategory.ts):
+  //   heightCategory ∈ {low, mid, high}  — пороги по высоте
+  //   widthCategory  ∈ {narrow, mid, long} — пороги по ширине
+  heightCategory String?
+  widthCategory  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([systemSlug, subsystemName, shotlanType])
+  @@unique([systemSlug, subsystemName, viewType, shotlanType, heightCategory, widthCategory])
   @@index([systemSlug, subsystemName])
+  @@index([systemSlug, subsystemName, viewType])
 }
 
 // ── System Formulas (calculation formulas per system/subsystem) ──
@@ -268,8 +312,12 @@ model SubsystemScheme {
 
   label     String   // "Вид спереди", "Вид сбоку", "Вид сверху"
   svgContent String  // raw SVG markup with {{WIDTH}}, {{HEIGHT}}, {{DOOR_WIDTH}} placeholders
-  ratioType  String? // "wide" (ширина > высота), "square" (≈равны), "tall" (высота > ширины), null = always show (door)
+  ratioType  String? // "system" | "door" | "top" — тип схемы; legacy "wide"/"square"/"tall" пока тоже остаются
   sortOrder  Int     @default(0)
+  // Для ratioType="system" — категории габаритов 3×3. У каждой комбинации
+  // (height × width) — своя загруженная SVG. Для top/door — оба null.
+  heightCategory String? // "low" (≤1500) | "mid" (1501–2500) | "high" (>2500)
+  widthCategory  String? // "narrow" (≤2000) | "mid" (2001–5000) | "long" (>5000)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -285,6 +333,11 @@ model ClientCard {
   managerName   String
   managerPhone  String?
   branch        String
+  // Откуда клиент узнал о нас (обязательное поле при создании карточки).
+  // referralDetail — кто порекомендовал (компания/человек), для вариантов «по
+  // рекомендации …» и «Другое».
+  referralSource String @default("")
+  referralDetail String @default("")
 
   systemSlug String?
   systemName String
@@ -340,4 +393,47 @@ model Calculation {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ── Site Content (мини-CMS для публичных страниц landing) ──
+// Ключ-значение пары для inline-редактирования текстов/картинок на главной.
+// key — стабильный идентификатор (например "home.hero.title").
+// type — text | image | video — определяет как использовать value.
+// Для type=image|video в value хранится URL уже загруженного через /api/upload файла.
+model SiteContent {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  type      String   @default("text") // "text" | "image" | "video"
+  value     String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Guest Leads (заявки гостей с калькулятора) ──
+// Когда неавторизованный посетитель доходит до шага «Результат» в калькуляторе,
+// он сначала вводит имя и телефон. После сабмита запись сохраняется здесь и
+// гость видит цену. Админ просматривает заявки в /admin/leads.
+model GuestLead {
+  id            String   @id @default(cuid())
+  name          String
+  phone         String
+  systemSlug    String
+  systemName    String
+  subsystemName String?
+  fullWidth     Int?
+  openWidth     Int?
+  height        Int?
+  doorWidth     Int?
+  glassType     String?
+  shotlanType   String?
+  totalPrice    Float?
+  status        String   @default("new") // "new" | "contacted" | "closed"
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
 }

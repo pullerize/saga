@@ -452,16 +452,24 @@ export function clusterPathsByPosition(
 
 /**
  * Применить scaleX/scaleY к группе <g id="system"> в SVG.
- * Origin — верх-центр системы (двери "висят" на штанге).
  *
- * Дополнительно:
- *   • Все <path> и <rect> внутри group получают vector-effect="non-scaling-stroke" —
- *     толщина обводки (профили) не меняется при scale.
- *   • Если внутри есть <g id="handles">, к ним применяется counter-scale
- *     (1/sx, 1/sy), origin — центр bbox handles. Это сохраняет внешние размеры
- *     ручек пропорциональными, только перемещает их в новой позиции.
+ * anchor:
+ *   • "bottom-center" (по умолчанию) — origin = низ-центр системы. Система
+ *     симметрично ужимается, как будто «висит» на штанге по центру (режим
+ *     «fit inside»).
+ *   • "left-top" — origin = левый-верхний угол bbox системы. При увеличении
+ *     ширины проёма система расширяется ВПРАВО, левая кромка стоит на месте
+ *     (адаптивный «вид системы»).
+ *
+ * Тот же transform применяется и к <g id="handles">, чтобы ручки следовали
+ * за сдвинувшимися кромками крайних дверей.
  */
-export function scaleSystemGroup(svg: string, scaleX: number, scaleY: number): string {
+export function scaleSystemGroup(
+  svg: string,
+  scaleX: number,
+  scaleY: number,
+  anchor: "bottom-center" | "left-top" = "bottom-center",
+): string {
   const group = extractSystemGroup(svg);
   if (!group) return svg;
 
@@ -469,15 +477,15 @@ export function scaleSystemGroup(svg: string, scaleX: number, scaleY: number): s
   if (!bbox || bbox.w === 0 || bbox.h === 0) return svg;
 
   const inner = group.inner;
-  const sysCx = bbox.x + bbox.w / 2;
-  const sysBottomY = bbox.y + bbox.h;
+  const originX = anchor === "left-top" ? bbox.x : bbox.x + bbox.w / 2;
+  const originY = anchor === "left-top" ? bbox.y : bbox.y + bbox.h;
+  const transform = `translate(${originX} ${originY}) scale(${scaleX} ${scaleY}) translate(${-originX} ${-originY})`;
 
-  // 1. Scale on system group (origin = низ-центр системы)
+  // 1. Scale on system group
   let result = svg;
   let openTag = group.full.match(/<g\b[^>]*>/i)![0];
   const needsScale = Math.abs(scaleX - 1) > 0.001 || Math.abs(scaleY - 1) > 0.001;
   if (needsScale) {
-    const transform = `translate(${sysCx} ${sysBottomY}) scale(${scaleX} ${scaleY}) translate(${-sysCx} ${-sysBottomY})`;
     openTag = openTag.replace(
       /<g\b([^>]*)\bid\s*=\s*["']system["']([^>]*)>/i,
       `<g$1id="system"$2 transform="${transform}">`
@@ -488,14 +496,12 @@ export function scaleSystemGroup(svg: string, scaleX: number, scaleY: number): s
 
   // 2. Тот же scale на <g id="handles"> — иначе ручки, которые лежат в SVG-
   //    координатах около краёв viewBox, остаются на месте и «улетают» от
-  //    сжавшейся системы. С тем же origin они визуально следуют за дверями.
+  //    сдвинувшейся системы. С тем же origin они визуально следуют за дверями.
   if (needsScale) {
     const handles = extractGroupById(result, "handles");
     if (handles) {
       const hOpen = handles.full.match(/<g\b[^>]*>/i)![0];
-      // Если у группы уже был свой transform — добавляем наш ВНУТРЬ через scale-translate.
-      // Простой случай: у handles нет transform — добавляем atribut transform.
-      const transform = `translate(${sysCx} ${sysBottomY}) scale(${scaleX} ${scaleY}) translate(${-sysCx} ${-sysBottomY})`;
+      // Если у группы уже был свой transform — добавляем наш ПЕРЕД ним.
       let newOpen = hOpen;
       if (/\btransform\s*=/.test(newOpen)) {
         newOpen = newOpen.replace(

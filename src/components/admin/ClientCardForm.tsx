@@ -2,23 +2,23 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn, formatPrice } from "@/lib/utils";
-import { systemsData } from "@/lib/calculations/systemsData";
+import { systemsData, type SystemDef, type SubsystemParams } from "@/lib/calculations/systemsData";
 import { type CalcComponent } from "@/lib/calculations/engine";
 import { calculateWithDB } from "@/lib/calculations/calculateWithDB";
 import { glassOptions, shotlanOptions, hideWithRiffled } from "@/lib/calculations/constants";
 import {
   systemMedia,
   subsystemPosters,
-  subsystemVideos,
   glassImages,
   shotlanImages,
 } from "@/lib/calculations/media";
 import PDFDownloadBtn from "@/components/pdf/PDFDownloadBtn";
-import { ProposalPreview } from "@/components/admin/ProposalPreview";
+import { ProposalPreview, type ProposalData } from "@/components/admin/ProposalPreview";
 import {
   UserPlus,
   ArrowRight,
@@ -47,10 +47,22 @@ interface Manager {
   role?: string;
 }
 
-const branches = [
-  "г. Ташкент, ул. Навои 100",
-  "г. Ташкент, ул. Амира Темура 55",
-  "г. Самарканд, ул. Регистан 12",
+/* Шоурум (филиал) компании — подгружается из /api/me/company. */
+interface Showroom {
+  name: string;
+  address: string;
+}
+
+/* Источники «Откуда узнали о нас». needsDetail — нужно ли уточнить, кто
+   порекомендовал (компания/человек). */
+const REFERRAL_SOURCES: Array<{ value: string; needsDetail: boolean }> = [
+  { value: "Instagram", needsDetail: false },
+  { value: "По рекомендации другого клиента", needsDetail: true },
+  { value: "Google ads", needsDetail: false },
+  { value: "По рекомендации мебельщика", needsDetail: true },
+  { value: "По рекомендации дизайнера", needsDetail: true },
+  { value: "По рекомендации", needsDetail: true },
+  { value: "Другое", needsDetail: true },
 ];
 
 /* Тип элемента для VisualChipGroup. */
@@ -58,24 +70,21 @@ type VisualChipOption = {
   value: string;
   label: string;
   imageUrl?: string | null;
-  /** Полноразмерный медиа-ресурс, открываемый по двойному клику. */
-  fullMedia?: { kind: "image" | "video"; url: string } | null;
+  /** Видео для инлайн-проигрывания в миниатюре (приоритетнее imageUrl). */
+  videoUrl?: string | null;
 };
 
-/* ─── Visual chip selector — кнопка с превью + подписью ─── */
+/* ─── Visual chip selector — кнопка с миниатюрой + подписью ─── */
 function VisualChipGroup({
   options,
   value,
   onChange,
-  onPreview,
   thumbClassName = "w-20 h-20",
   thumbObjectFit = "cover",
 }: {
   options: VisualChipOption[];
   value: string | null;
   onChange: (v: string) => void;
-  /** Открыть полноэкранное превью, начиная с указанного значения. */
-  onPreview?: (startValue: string) => void;
   thumbClassName?: string;
   thumbObjectFit?: "cover" | "contain";
 }) {
@@ -87,12 +96,6 @@ function VisualChipGroup({
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
-            onDoubleClick={() => {
-              if (opt.fullMedia && onPreview) {
-                onPreview(opt.value);
-              }
-            }}
-            title={opt.fullMedia ? "Двойной клик — открыть превью" : undefined}
             className={cn(
               "group relative flex flex-col items-center rounded-xl border-2 overflow-hidden transition-all cursor-pointer bg-card w-36 select-none",
               active
@@ -106,7 +109,20 @@ function VisualChipGroup({
                 thumbClassName
               )}
             >
-              {opt.imageUrl ? (
+              {opt.videoUrl ? (
+                <video
+                  src={opt.videoUrl}
+                  poster={opt.imageUrl ?? undefined}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className={cn(
+                    "w-full h-full",
+                    thumbObjectFit === "cover" ? "object-cover" : "object-contain p-1.5"
+                  )}
+                />
+              ) : opt.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={opt.imageUrl}
@@ -348,6 +364,10 @@ export interface ClientCardData {
   /** Телефон менеджера на момент создания карточки. */
   managerPhone?: string | null;
   branch: string;
+  /** Откуда клиент узнал о нас (обязательное поле). */
+  referralSource?: string;
+  /** Кто порекомендовал — компания/человек (для вариантов «по рекомендации …» / «Другое»). */
+  referralDetail?: string;
   systemSlug?: string;
   systemName: string;
   subsystem: string;
@@ -380,6 +400,12 @@ interface ClientCardFormProps {
 export function ClientCardForm({ knownClients = [], initialData, onCreated, onSilentSave, onCancel }: ClientCardFormProps) {
   const isEditing = !!initialData;
 
+  // Роль пользователя. Партнёр (PARTNER) может менять только доп. услуги —
+  // комплектацию (систему/подсистему/стекло/шотланку) и цены компонентов в
+  // превью КП ему редактировать нельзя. Админ/менеджер — могут.
+  const { data: session } = useSession();
+  const isPartner = session?.user?.role === "PARTNER";
+
   // Менеджеры: динамический список пользователей, привязанных к компании текущего
   // залогиненного юзера (через /api/me/colleagues). До завершения загрузки список
   // пуст; managerId сопоставляется с initialData.managerName ниже, в useEffect.
@@ -389,6 +415,21 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
       .then((r) => (r.ok ? r.json() : []))
       .then((rows: Manager[]) => setManagers(rows))
       .catch(() => setManagers([]));
+  }, []);
+
+  // Филиалы (шоурумы) компании текущего пользователя. Показываются только
+  // существующие и привязанные к его компании — список приходит из /api/me/company.
+  const [showrooms, setShowrooms] = useState<Showroom[]>([]);
+  useEffect(() => {
+    // no-store — иначе браузер может отдать устаревший ответ /api/me/company
+    // (его же дёргают шапка и превью), и недавно добавленные филиалы не появятся.
+    fetch("/api/me/company", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((company: { showrooms?: Showroom[] | null } | null) => {
+        const list = Array.isArray(company?.showrooms) ? company!.showrooms : [];
+        setShowrooms(list.filter((s) => s && (s.name || s.address)));
+      })
+      .catch(() => setShowrooms([]));
   }, []);
 
   const initSystemSlug = initialData
@@ -408,6 +449,11 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
     initialData ? extractPhoneDigits(initialData.clientPhone) : ""
   );
   const [clientAddress, setClientAddress] = useState(initialData?.clientAddress ?? "");
+
+  // «Откуда узнали о нас» (обязательное) + уточнение, кто порекомендовал.
+  const [referralSource, setReferralSource] = useState(initialData?.referralSource ?? "");
+  const [referralDetail, setReferralDetail] = useState(initialData?.referralDetail ?? "");
+  const referralNeedsDetail = REFERRAL_SOURCES.find((s) => s.value === referralSource)?.needsDetail ?? false;
 
   const clientPhone = formatPhone(phoneDigits);
 
@@ -439,30 +485,6 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
   const [fullWidth, setFullWidth] = useState(initialData?.fullWidth ?? 0);
   const [openWidth, setOpenWidth] = useState(initialData?.openWidth ?? 0);
   const [height, setHeight] = useState(initialData?.height ?? 0);
-
-  // Полноэкранный просмотр медиа: открывается двойным кликом по чипу/карточке.
-  // Содержит список вариантов своей секции и текущий индекс — кнопки prev/next
-  // переключаются только в пределах одной секции.
-  type PreviewItem = {
-    value: string;
-    label: string;
-    media: { kind: "image" | "video"; url: string };
-  };
-  type PreviewSection = "system" | "subsystem" | "glass" | "shotlan";
-  const [mediaPreview, setMediaPreview] = useState<
-    | { section: PreviewSection; items: PreviewItem[]; index: number }
-    | null
-  >(null);
-
-  // Хелпер — открыть превью с указанной секцией и стартовым value.
-  const openPreview = useCallback(
-    (section: PreviewSection, items: PreviewItem[], startValue: string) => {
-      const idx = items.findIndex((it) => it.value === startValue);
-      if (idx < 0) return;
-      setMediaPreview({ section, items, index: idx });
-    },
-    [],
-  );
 
   // Custom services
   interface CustomService { name: string; description: string; price: number }
@@ -523,10 +545,28 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
       .catch(() => setGlassImageUrl(undefined));
   }, [glass]);
 
-  const selectedManager = managers.find((m) => m.id === managerId);
-  const system = systemSlug ? systemsData[systemSlug] : null;
+  // Определения систем, добавленных в БД, но отсутствующих в захардкоженном
+  // systemsData (новые системы из /admin/systems). Заполняется fetch-эффектом
+  // ниже. Без этого новые системы не появлялись в выборе при создании карточки.
+  const [dbSystemDefs, setDbSystemDefs] = useState<Record<string, SystemDef>>({});
 
-  const canProceedToConfig = clientName.trim() && phoneDigits.length >= 9 && managerId && branchAddress;
+  // Захардкоженные системы + новые из БД (DB-only). systemsData имеет приоритет
+  // для известных систем (точные params для legacy-движка).
+  const allSystemDefs = useMemo<Record<string, SystemDef>>(
+    () => ({ ...systemsData, ...dbSystemDefs }),
+    [dbSystemDefs],
+  );
+
+  const selectedManager = managers.find((m) => m.id === managerId);
+  const system = systemSlug ? (allSystemDefs[systemSlug] ?? null) : null;
+
+  const canProceedToConfig =
+    clientName.trim() &&
+    phoneDigits.length >= 9 &&
+    managerId &&
+    branchAddress &&
+    referralSource &&
+    (!referralNeedsDetail || referralDetail.trim());
 
   // Filter subsystems
   const availableSubsystems = useMemo(() => {
@@ -591,23 +631,118 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
     }
   }, [canCalculate, systemSlug, effectiveSubsystem, system, glass, shotlan, fullWidth, openWidth, height]);
 
-  // Filter systems by what's actually present in DB
+  // Авто-пересчёт на шаге «Результат». Когда из превью КП меняют
+  // стекло/шотланку/подсистему/систему/размеры — пересчитываем цену и компоненты,
+  // а зависимые эффекты подтягивают новую картинку стекла, вариант и чертежи.
+  // Без этого правки в превью меняли бы только текст, не трогая формулы/цену.
+  useEffect(() => {
+    if (step !== "result" || !canCalculate) return;
+    handleCalculate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, glass, shotlan, effectiveSubsystem, systemSlug, fullWidth, openWidth, height]);
+
+  // Применение правок из превью КП обратно в состояние формы. Пробрасываем только
+  // калькуляционные поля (система/подсистема/стекло/шотланка) — текстовые поля
+  // (клиент/менеджер/филиал) остаются локальными правками внутри превью.
+  const handlePreviewChange = useCallback((d: ProposalData) => {
+    if (d.glass !== glass) setGlass(d.glass);
+    if (d.shotlan !== shotlan) setShotlan(d.shotlan);
+
+    const newSlug = Object.entries(allSystemDefs).find(([, s]) => s.name === d.systemName)?.[0] ?? null;
+    if (newSlug && newSlug !== systemSlug) {
+      setSystemSlug(newSlug);
+      // подсистема валидна только в рамках своей системы — сбрасываем чужую
+      setSubsystemId(
+        d.subsystem && allSystemDefs[newSlug]?.subsystems?.[d.subsystem] ? d.subsystem : null,
+      );
+    } else if (d.subsystem && d.subsystem !== (effectiveSubsystem || subsystemId)) {
+      setSubsystemId(d.subsystem);
+    }
+  }, [glass, shotlan, systemSlug, effectiveSubsystem, subsystemId, allSystemDefs]);
+
+  // Filter systems by what's actually present in DB + забираем видео/постер
+  // систем И подсистем из БД (захардкоженные systemMedia/subsystemVideos пустые,
+  // реальные URL — в DoorSystem и Subsystem).
   const [activeSlugs, setActiveSlugs] = useState<Set<string> | null>(null);
+  const [dbSystemMedia, setDbSystemMedia] = useState<
+    Record<string, { video: string | null; poster: string | null }>
+  >({});
+  // Карта медиа подсистем: dbSubsystemMedia[systemSlug][subsystemName] = { video, poster }
+  const [dbSubsystemMedia, setDbSubsystemMedia] = useState<
+    Record<string, Record<string, { video: string | null; poster: string | null }>>
+  >({});
   useEffect(() => {
     fetch("/api/systems")
       .then((r) => (r.ok ? r.json() : []))
-      .then((rows: Array<{ slug: string }>) =>
-        setActiveSlugs(new Set(rows.map((r) => r.slug)))
-      )
-      .catch(() => setActiveSlugs(new Set()));
+      .then((rows: Array<{
+        slug: string;
+        name: string;
+        minWidth: number;
+        maxWidth: number;
+        maxFullWidth?: number | null;
+        hasExtraField?: boolean;
+        videoUrl?: string | null;
+        posterUrl?: string | null;
+        subsystems?: Array<{
+          name: string;
+          minWidth: number;
+          maxWidth: number;
+          params?: unknown;
+          videoUrl?: string | null;
+          posterUrl?: string | null;
+        }>;
+      }>) => {
+        setActiveSlugs(new Set(rows.map((r) => r.slug)));
+        const sysMap: Record<string, { video: string | null; poster: string | null }> = {};
+        const subMap: Record<string, Record<string, { video: string | null; poster: string | null }>> = {};
+        const defs: Record<string, SystemDef> = {};
+        rows.forEach((r) => {
+          sysMap[r.slug] = { video: r.videoUrl ?? null, poster: r.posterUrl ?? null };
+          subMap[r.slug] = {};
+          (r.subsystems ?? []).forEach((sub) => {
+            subMap[r.slug][sub.name] = { video: sub.videoUrl ?? null, poster: sub.posterUrl ?? null };
+          });
+          // Для систем, которых нет в захардкоженном systemsData, строим SystemDef
+          // из данных БД, чтобы они появились в выборе и корректно фильтровались
+          // по ширине. Расчёт идёт через /api/calculate (формулы из БД).
+          if (!systemsData[r.slug]) {
+            defs[r.slug] = {
+              name: r.name,
+              minWidth: r.minWidth,
+              maxWidth: r.maxWidth,
+              maxFullWidth: r.maxFullWidth ?? undefined,
+              extraField: !!r.hasExtraField,
+              subsystems: Object.fromEntries(
+                (r.subsystems ?? []).map((sub) => [
+                  sub.name,
+                  {
+                    min: sub.minWidth,
+                    max: sub.maxWidth,
+                    params: (sub.params && typeof sub.params === "object" ? sub.params : {}) as SubsystemParams,
+                  },
+                ]),
+              ),
+            };
+          }
+        });
+        setDbSystemMedia(sysMap);
+        setDbSubsystemMedia(subMap);
+        setDbSystemDefs(defs);
+      })
+      .catch(() => {
+        setActiveSlugs(new Set());
+        setDbSystemMedia({});
+        setDbSubsystemMedia({});
+        setDbSystemDefs({});
+      });
   }, []);
 
   const systemEntries = useMemo(
     () =>
-      Object.entries(systemsData).filter(
+      Object.entries(allSystemDefs).filter(
         ([slug]) => !activeSlugs || activeSlugs.has(slug)
       ),
-    [activeSlugs]
+    [allSystemDefs, activeSlugs]
   );
 
   return (
@@ -712,6 +847,42 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                   />
                 </div>
               </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Откуда узнали о нас <span className="text-destructive">*</span>
+                </label>
+                <select
+                  value={referralSource}
+                  onChange={(e) => {
+                    setReferralSource(e.target.value);
+                    // при смене источника на тот, что не требует уточнения — чистим деталь
+                    const needs = REFERRAL_SOURCES.find((s) => s.value === e.target.value)?.needsDetail ?? false;
+                    if (!needs) setReferralDetail("");
+                  }}
+                  className={cn(
+                    "h-10 w-full rounded-md border bg-background px-3 text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500",
+                    referralSource ? "border-border" : "border-border text-muted-foreground",
+                  )}
+                >
+                  <option value="" disabled>Выберите вариант…</option>
+                  {REFERRAL_SOURCES.map((s) => (
+                    <option key={s.value} value={s.value}>{s.value}</option>
+                  ))}
+                </select>
+                {referralNeedsDetail && (
+                  <Input
+                    placeholder="Кто порекомендовал (компания / человек)"
+                    value={referralDetail}
+                    onChange={(e) => setReferralDetail(e.target.value)}
+                    autoComplete="one-time-code"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-protonpass-ignore
+                  />
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -761,24 +932,42 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Адрес филиала</label>
-                <div className="grid gap-2">
-                  {branches.map((addr) => (
-                    <button
-                      key={addr}
-                      onClick={() => setBranchAddress(addr)}
-                      className={cn(
-                        "flex items-center gap-2 px-4 py-2.5 rounded-lg border text-left text-sm transition-all cursor-pointer",
-                        branchAddress === addr
-                          ? "bg-brand-50 border-brand-300 ring-1 ring-brand-200"
-                          : "bg-card border-border hover:border-brand-200"
-                      )}
-                    >
-                      <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      {addr}
-                    </button>
-                  ))}
-                </div>
+                <label className="text-xs font-medium text-muted-foreground">Филиал / шоурум</label>
+                {showrooms.length === 0 ? (
+                  <p className="text-xs text-muted-foreground rounded-lg border border-dashed border-border px-4 py-3">
+                    У компании пока нет филиалов. Добавьте их в разделе{" "}
+                    <Link href="/admin/companies" className="text-brand-600 underline underline-offset-2">
+                      Компании
+                    </Link>
+                    .
+                  </p>
+                ) : (
+                  <div className="grid gap-2">
+                    {showrooms.map((s, i) => {
+                      const value = s.name && s.address
+                        ? `${s.name} — ${s.address}`
+                        : (s.name || s.address);
+                      return (
+                        <button
+                          key={`${value}-${i}`}
+                          onClick={() => setBranchAddress(value)}
+                          className={cn(
+                            "flex items-start gap-2 px-4 py-2.5 rounded-lg border text-left text-sm transition-all cursor-pointer",
+                            branchAddress === value
+                              ? "bg-brand-50 border-brand-300 ring-1 ring-brand-200"
+                              : "bg-card border-border hover:border-brand-200"
+                          )}
+                        >
+                          <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
+                          <span className="min-w-0">
+                            {s.name && <span className="font-medium block">{s.name}</span>}
+                            {s.address && <span className="text-muted-foreground block">{s.address}</span>}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -831,9 +1020,12 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
           <Section title="Система">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {systemEntries.map(([slug, sys]) => {
+                // Сначала медиа из БД (DoorSystem.videoUrl/posterUrl), затем
+                // fallback на захардкоженный systemMedia.
+                const dbMedia = dbSystemMedia[slug];
                 const media = systemMedia[slug];
-                const poster = media?.poster;
-                const video = media?.video;
+                const poster = dbMedia?.poster || media?.poster || "";
+                const video = dbMedia?.video || media?.video || "";
                 const active = systemSlug === slug;
                 return (
                   <button
@@ -849,21 +1041,6 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                       setOpenWidth(0);
                       setHeight(0);
                     }}
-                    onDoubleClick={() => {
-                      const items: PreviewItem[] = systemEntries
-                        .map(([s, sd]) => {
-                          const m = systemMedia[s];
-                          const media = m?.video
-                            ? { kind: "video" as const, url: m.video }
-                            : m?.poster
-                            ? { kind: "image" as const, url: m.poster }
-                            : null;
-                          return media ? { value: s, label: sd.name, media } : null;
-                        })
-                        .filter((x): x is PreviewItem => !!x);
-                      if (items.length > 0) openPreview("system", items, slug);
-                    }}
-                    title={video || poster ? "Двойной клик — открыть превью" : undefined}
                     className={cn(
                       "group flex flex-col rounded-lg border overflow-hidden transition-all cursor-pointer text-left select-none",
                       active
@@ -872,7 +1049,17 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                     )}
                   >
                     <div className="aspect-[4/3] bg-muted/40 overflow-hidden border-b border-border/50">
-                      {poster ? (
+                      {video ? (
+                        <video
+                          src={video}
+                          poster={poster ?? undefined}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          className="w-full h-full object-cover"
+                        />
+                      ) : poster ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={poster}
@@ -881,7 +1068,7 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-[10px] text-muted-foreground">
-                          нет превью
+                          нет видео
                         </div>
                       )}
                     </div>
@@ -933,36 +1120,18 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                 <Section title="Подсистема">
                   <VisualChipGroup
                     options={availableSubsystems.map((sub) => {
-                      const poster = systemSlug ? subsystemPosters[systemSlug]?.[sub] : null;
-                      const video = systemSlug ? subsystemVideos[systemSlug]?.[sub] : null;
+                      const dbMedia = systemSlug ? dbSubsystemMedia[systemSlug]?.[sub] : null;
+                      const poster = dbMedia?.poster || (systemSlug ? subsystemPosters[systemSlug]?.[sub] : null);
+                      const video = dbMedia?.video || null;
                       return {
                         value: sub,
                         label: sub,
                         imageUrl: poster,
-                        fullMedia: video
-                          ? { kind: "video" as const, url: video }
-                          : poster
-                          ? { kind: "image" as const, url: poster }
-                          : null,
+                        videoUrl: video,
                       };
                     })}
                     value={effectiveSubsystem}
                     onChange={(v) => { setSubsystemId(v); setResult(null); }}
-                    onPreview={(start) => {
-                      const items: PreviewItem[] = availableSubsystems
-                        .map((sub) => {
-                          const poster = systemSlug ? subsystemPosters[systemSlug]?.[sub] : null;
-                          const video = systemSlug ? subsystemVideos[systemSlug]?.[sub] : null;
-                          const media = video
-                            ? { kind: "video" as const, url: video }
-                            : poster
-                            ? { kind: "image" as const, url: poster }
-                            : null;
-                          return media ? { value: sub, label: sub, media } : null;
-                        })
-                        .filter((x): x is PreviewItem => !!x);
-                      if (items.length > 0) openPreview("subsystem", items, start);
-                    }}
                     thumbClassName="w-28 h-20"
                     thumbObjectFit="cover"
                   />
@@ -978,19 +1147,9 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                     value: g,
                     label: g,
                     imageUrl: glassImages[g],
-                    fullMedia: glassImages[g] ? { kind: "image" as const, url: glassImages[g] } : null,
                   }))}
                   value={glass}
                   onChange={(v) => { setGlass(v); setResult(null); }}
-                  onPreview={(start) => {
-                    const items: PreviewItem[] = glassOptions
-                      .map((g) => {
-                        const url = glassImages[g];
-                        return url ? { value: g, label: g, media: { kind: "image" as const, url } } : null;
-                      })
-                      .filter((x): x is PreviewItem => !!x);
-                    if (items.length > 0) openPreview("glass", items, start);
-                  }}
                   thumbClassName="w-24 h-24"
                   thumbObjectFit="cover"
                 />
@@ -1002,19 +1161,9 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                     value: s,
                     label: s,
                     imageUrl: shotlanImages[s],
-                    fullMedia: shotlanImages[s] ? { kind: "image" as const, url: shotlanImages[s] } : null,
                   }))}
                   value={shotlan}
                   onChange={(v) => { setShotlan(v); setResult(null); }}
-                  onPreview={(start) => {
-                    const items: PreviewItem[] = filteredShotlanOptions
-                      .map((s) => {
-                        const url = shotlanImages[s];
-                        return url ? { value: s, label: s, media: { kind: "image" as const, url } } : null;
-                      })
-                      .filter((x): x is PreviewItem => !!x);
-                    if (items.length > 0) openPreview("shotlan", items, start);
-                  }}
                   thumbClassName="w-28 h-20"
                   thumbObjectFit="contain"
                 />
@@ -1108,6 +1257,8 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
             managerName: effectiveManagerName,
             managerPhone: effectiveManagerPhone,
             branch: branchAddress || "",
+            referralSource,
+            referralDetail: referralNeedsDetail ? referralDetail.trim() : "",
             systemSlug: systemSlug || initialData?.systemSlug || undefined,
             systemName: system.name,
             subsystem: effectiveSubsystem || subsystemId || initialData?.subsystem || "",
@@ -1156,6 +1307,8 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
               variant: variantData,
               partnerCompanyName: initialData?.companyName ?? null,
             }}
+            onDataChange={handlePreviewChange}
+            canEditConfig={!isPartner}
             onBeforePdfDownload={handleBeforePdfDownload}
           />
 
@@ -1176,6 +1329,8 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                     clientAddress,
                     managerName: selectedManager?.name || "",
                     branch: branchAddress || "",
+                    referralSource,
+                    referralDetail: referralNeedsDetail ? referralDetail.trim() : "",
                     systemSlug: systemSlug || initialData?.systemSlug || undefined,
                     systemName: system.name,
                     subsystem: effectiveSubsystem || subsystemId || initialData?.subsystem || "",
@@ -1201,117 +1356,6 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
         );
       })()}
 
-      {/* Полноэкранный просмотр медиа: prev/next в пределах своей секции,
-          кнопка «Выбрать» для подтверждения текущего варианта. */}
-      {mediaPreview && (() => {
-        const { section, items, index } = mediaPreview;
-        const cur = items[index];
-        const prev = () => setMediaPreview({ section, items, index: (index - 1 + items.length) % items.length });
-        const next = () => setMediaPreview({ section, items, index: (index + 1) % items.length });
-        const select = () => {
-          if (section === "system") {
-            if (systemSlug !== cur.value) {
-              setSystemSlug(cur.value);
-              setSubsystemId(null);
-              setGlass(null);
-              setShotlan("Без шотланок");
-              setResult(null);
-              setFullWidth(0);
-              setOpenWidth(0);
-              setHeight(0);
-            }
-          } else if (section === "subsystem") {
-            setSubsystemId(cur.value);
-            setResult(null);
-          } else if (section === "glass") {
-            setGlass(cur.value);
-            setResult(null);
-          } else if (section === "shotlan") {
-            setShotlan(cur.value);
-            setResult(null);
-          }
-          setMediaPreview(null);
-        };
-        return (
-          <div
-            className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6"
-            onClick={() => setMediaPreview(null)}
-          >
-            {/* Закрыть */}
-            <button
-              onClick={(e) => { e.stopPropagation(); setMediaPreview(null); }}
-              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
-              aria-label="Закрыть"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            {/* Prev */}
-            {items.length > 1 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); prev(); }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
-                aria-label="Предыдущий"
-              >
-                <ArrowLeft className="w-6 h-6" />
-              </button>
-            )}
-
-            {/* Next */}
-            {items.length > 1 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); next(); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
-                aria-label="Следующий"
-              >
-                <ArrowRight className="w-6 h-6" />
-              </button>
-            )}
-
-            <div
-              className="bg-white rounded-2xl p-4 max-w-[92vw] max-h-[92vh] flex flex-col items-center gap-3 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between w-full px-2">
-                <div className="text-sm font-semibold text-foreground">{cur.label}</div>
-                <div className="text-[11px] text-muted-foreground tabular-nums">
-                  {index + 1} / {items.length}
-                </div>
-              </div>
-
-              {cur.media.kind === "video" ? (
-                <video
-                  key={cur.media.url}
-                  src={cur.media.url}
-                  autoPlay
-                  loop
-                  muted
-                  controls
-                  playsInline
-                  className="max-w-[88vw] max-h-[72vh] rounded-md bg-black"
-                />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={cur.media.url}
-                  src={cur.media.url}
-                  alt={cur.label}
-                  className="max-w-[88vw] max-h-[72vh] rounded-md object-contain"
-                />
-              )}
-
-              <div className="flex items-center gap-2 pt-1">
-                <Button variant="outline" size="lg" onClick={() => setMediaPreview(null)}>
-                  Закрыть
-                </Button>
-                <Button variant="premium" size="lg" onClick={select}>
-                  Выбрать «{cur.label}»
-                </Button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

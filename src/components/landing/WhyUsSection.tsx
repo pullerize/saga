@@ -3,6 +3,8 @@
 import { motion, useScroll, useTransform, useMotionValueEvent, AnimatePresence } from "framer-motion";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { Editable } from "@/components/site-edit/Editable";
+import { useSiteEdit } from "@/components/site-edit/SiteEditProvider";
 
 const reasons = [
   {
@@ -81,6 +83,14 @@ function getSlideIndex(progress: number): number {
 export function WhyUsSection() {
   const containerRef = useRef<HTMLElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const { editing, get } = useSiteEdit();
+
+  // Динамические значения reasons с фолбэком на статический массив.
+  // Каждый блок имеет 4 ключа: title, description, stat, statLabel.
+  function rTitle(i: number) { return get(`home.why.r${i + 1}_title`, reasons[i].title); }
+  function rDesc(i: number) { return get(`home.why.r${i + 1}_description`, reasons[i].description); }
+  function rStat(i: number) { return get(`home.why.r${i + 1}_stat`, reasons[i].stat); }
+  function rStatLabel(i: number) { return get(`home.why.r${i + 1}_statLabel`, reasons[i].statLabel); }
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -189,7 +199,7 @@ export function WhyUsSection() {
                     className="text-[11px] font-medium uppercase tracking-[0.3em]"
                     style={{ color: "var(--saga-accent)" }}
                   >
-                    Почему мы
+                    <Editable contentKey="home.why.eyebrow" defaultValue="Почему мы" as="span" />
                   </span>
                 </div>
 
@@ -208,35 +218,63 @@ export function WhyUsSection() {
                   </motion.span>
                 </AnimatePresence>
 
-                {/* Title */}
-                <AnimatePresence mode="wait">
-                  <motion.h2
-                    key={`title-${activeIndex}`}
-                    initial={{ y: 25, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: -20, opacity: 0 }}
-                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                {/* Title — в режиме редактирования отдаётся Editable (без анимации). */}
+                {editing ? (
+                  <h2
                     className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05] whitespace-pre-line"
                     style={{ color: "var(--saga-primary)" }}
                   >
-                    {reasons[activeIndex].title}
-                  </motion.h2>
-                </AnimatePresence>
+                    <Editable
+                      contentKey={`home.why.r${activeIndex + 1}_title`}
+                      defaultValue={reasons[activeIndex].title}
+                      as="span"
+                      multiline
+                    />
+                  </h2>
+                ) : (
+                  <AnimatePresence mode="wait">
+                    <motion.h2
+                      key={`title-${activeIndex}`}
+                      initial={{ y: 25, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ y: -20, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                      className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05] whitespace-pre-line"
+                      style={{ color: "var(--saga-primary)" }}
+                    >
+                      {rTitle(activeIndex)}
+                    </motion.h2>
+                  </AnimatePresence>
+                )}
 
                 {/* Description */}
-                <AnimatePresence mode="wait">
-                  <motion.p
-                    key={`desc-${activeIndex}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.15, delay: 0.05 }}
+                {editing ? (
+                  <p
                     className="mt-6 text-sm sm:text-base leading-relaxed max-w-md"
                     style={{ color: "rgba(22, 40, 50, 0.45)" }}
                   >
-                    {reasons[activeIndex].description}
-                  </motion.p>
-                </AnimatePresence>
+                    <Editable
+                      contentKey={`home.why.r${activeIndex + 1}_description`}
+                      defaultValue={reasons[activeIndex].description}
+                      as="span"
+                      multiline
+                    />
+                  </p>
+                ) : (
+                  <AnimatePresence mode="wait">
+                    <motion.p
+                      key={`desc-${activeIndex}`}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.15, delay: 0.05 }}
+                      className="mt-6 text-sm sm:text-base leading-relaxed max-w-md"
+                      style={{ color: "rgba(22, 40, 50, 0.45)" }}
+                    >
+                      {rDesc(activeIndex)}
+                    </motion.p>
+                  </AnimatePresence>
+                )}
 
                 {/* Mobile progress */}
                 <div className="flex items-center gap-2 mt-8 lg:hidden">
@@ -357,13 +395,29 @@ export function WhyUsSection() {
                             color: "var(--saga-primary)",
                           }}
                         >
-                          {reasons[activeIndex].stat}
+                          {editing ? (
+                            <Editable
+                              contentKey={`home.why.r${activeIndex + 1}_stat`}
+                              defaultValue={reasons[activeIndex].stat}
+                              as="span"
+                            />
+                          ) : (
+                            rStat(activeIndex)
+                          )}
                         </span>
                         <span
                           className="text-[10px] uppercase tracking-[0.25em] mt-3"
                           style={{ color: "var(--saga-accent)" }}
                         >
-                          {reasons[activeIndex].statLabel}
+                          {editing ? (
+                            <Editable
+                              contentKey={`home.why.r${activeIndex + 1}_statLabel`}
+                              defaultValue={reasons[activeIndex].statLabel}
+                              as="span"
+                            />
+                          ) : (
+                            rStatLabel(activeIndex)
+                          )}
                         </span>
                       </motion.div>
                     </AnimatePresence>

@@ -25,6 +25,9 @@ interface CompanyBrandProps {
 export function CompanyBrand({ size = "sm", partnerLogoHeight, className }: CompanyBrandProps) {
   const [company, setCompany] = useState<MeCompany | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Если файл логотипа не загрузился (битый/неподдерживаемый формат, 404) —
+  // не показываем «битую картинку», а откатываемся на логотип SAGA.
+  const [logoFailed, setLogoFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +54,7 @@ export function CompanyBrand({ size = "sm", partnerLogoHeight, className }: Comp
     !!company.logoUrl &&
     company.name.trim().toLowerCase() !== "saga group";
 
-  if (!loaded || !isExternal) {
+  if (!loaded || !isExternal || logoFailed) {
     return <Logo size={size} className={className} />;
   }
 
@@ -68,6 +71,7 @@ export function CompanyBrand({ size = "sm", partnerLogoHeight, className }: Comp
           src={company!.logoUrl!}
           alt={company!.name}
           className="h-full w-auto object-contain"
+          onError={() => setLogoFailed(true)}
         />
       </div>
     </div>

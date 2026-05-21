@@ -182,6 +182,9 @@ function FormulaInput({
 export default function FormulasPage() {
   const [formulas, setFormulas] = useState<Formula[]>([]);
   const [paramDefs, setParamDefs] = useState<ParamDef[]>([]);
+  // Системы из БД (включая новые, у которых ещё нет формул) — чтобы их можно
+  // было выбрать и добавить формулы. Ключ соответствия — имя системы.
+  const [dbSystems, setDbSystems] = useState<Array<{ name: string; subsystems: string[] }>>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -217,11 +220,27 @@ export default function FormulasPage() {
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { fetchFormulas(); fetchParamDefs(); }, [fetchFormulas, fetchParamDefs]);
+  const fetchSystems = useCallback(async () => {
+    try {
+      const res = await fetch("/api/systems");
+      if (res.ok) {
+        const rows: Array<{ name: string; subsystems?: Array<{ name: string }> }> = await res.json();
+        setDbSystems(rows.map((s) => ({ name: s.name, subsystems: (s.subsystems ?? []).map((sub) => sub.name) })));
+      }
+    } catch { /* ignore */ }
+  }, []);
 
-  // Group by system
+  useEffect(() => { fetchFormulas(); fetchParamDefs(); fetchSystems(); }, [fetchFormulas, fetchParamDefs, fetchSystems]);
+
+  // Group by system. Берём системы из БД (включая новые без формул) и
+  // дополняем системами, которые встречаются в существующих формулах (legacy /
+  // отсутствующие в БД). Подсистемы объединяем из обоих источников.
   const systems = useMemo(() => {
     const map = new Map<string, Set<string>>();
+    dbSystems.forEach((s) => {
+      if (!map.has(s.name)) map.set(s.name, new Set());
+      s.subsystems.forEach((sub) => map.get(s.name)!.add(sub));
+    });
     formulas.forEach((f) => {
       if (!map.has(f.systemName)) map.set(f.systemName, new Set());
       map.get(f.systemName)!.add(f.subsystemName);
@@ -230,7 +249,7 @@ export default function FormulasPage() {
       name,
       subsystems: Array.from(subs),
     }));
-  }, [formulas]);
+  }, [formulas, dbSystems]);
 
   // Door width formulas per subsystem (unique per subsystem)
   const doorWidthFormulas = useMemo(() => {

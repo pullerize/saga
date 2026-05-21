@@ -5,11 +5,10 @@ import { signIn, getSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Logo } from "@/components/shared/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Eye, EyeOff, LogIn, Loader2, UserRound } from "lucide-react";
+import { Eye, EyeOff, LogIn, Loader2, UserRound, ArrowLeft } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -56,7 +55,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex relative">
+      {/* Кнопка «На сайт» — поверх всех панелей, в правом верхнем углу */}
+      <Link
+        href="/"
+        className="absolute top-5 right-5 z-20 inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/90 backdrop-blur-sm border border-border shadow-md text-sm font-medium text-brand-700 hover:bg-white hover:text-brand-900 transition-all"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        На сайт
+      </Link>
+
       {/* Left: decorative brand panel */}
       <div className="hidden lg:flex lg:w-1/2 brand-gradient relative overflow-hidden">
         <div className="absolute inset-0">
@@ -64,7 +72,9 @@ export default function LoginPage() {
           <div className="absolute bottom-1/4 right-1/4 w-64 h-64 rounded-full bg-gold/10 blur-3xl" />
         </div>
         <div className="relative flex flex-col justify-center px-16 text-white">
-          <Logo size="lg" className="[&_h1]:text-white [&_p]:text-brand-300 mb-12" />
+          <span className="font-display text-6xl md:text-7xl font-light tracking-wide text-white drop-shadow-lg mb-12">
+            SAGA <span className="text-brand-300">GROUP</span>
+          </span>
           <h2 className="font-display text-3xl font-bold leading-tight">
             Управляйте бизнесом
             <br />
@@ -86,7 +96,9 @@ export default function LoginPage() {
           className="w-full max-w-md"
         >
           <div className="lg:hidden mb-8">
-            <Logo size="md" />
+            <span className="font-display text-4xl font-light tracking-wide text-brand-800">
+              SAGA <span className="text-brand-500">GROUP</span>
+            </span>
           </div>
 
           <h1 className="font-display text-2xl font-bold mb-2">

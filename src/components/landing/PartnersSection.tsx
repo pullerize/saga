@@ -1,6 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { Editable } from "@/components/site-edit/Editable";
+import { useSiteEdit } from "@/components/site-edit/SiteEditProvider";
 
 const partners = [
   { name: "Alumil", desc: "Профильные системы" },
@@ -12,6 +14,7 @@ const partners = [
 ];
 
 export function PartnersSection() {
+  const { get } = useSiteEdit();
   return (
     <section className="relative py-20 lg:py-28 overflow-hidden">
       {/* Background */}
@@ -37,7 +40,7 @@ export function PartnersSection() {
             >
               <div className="w-8 h-[1px]" style={{ backgroundColor: "var(--saga-accent)" }} />
               <span className="text-[11px] font-medium uppercase tracking-[0.3em]" style={{ color: "var(--saga-accent)" }}>
-                Партнёры
+                <Editable contentKey="home.partners.eyebrow" defaultValue="Партнёры" as="span" />
               </span>
             </motion.div>
             <motion.h2
@@ -48,8 +51,10 @@ export function PartnersSection() {
               className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1]"
               style={{ color: "var(--saga-primary)" }}
             >
-              Работаем с{" "}
-              <span style={{ color: "var(--saga-accent)" }}>лучшими</span>
+              <Editable contentKey="home.partners.title" defaultValue="Работаем с" as="span" />{" "}
+              <span style={{ color: "var(--saga-accent)" }}>
+                <Editable contentKey="home.partners.title_accent" defaultValue="лучшими" as="span" />
+              </span>
             </motion.h2>
           </div>
           <motion.p
@@ -60,8 +65,12 @@ export function PartnersSection() {
             className="text-sm leading-relaxed max-w-sm lg:text-right"
             style={{ color: "rgba(22, 40, 50, 0.4)" }}
           >
-            Мы используем комплектующие исключительно от ведущих
-            европейских производителей.
+            <Editable
+              contentKey="home.partners.intro"
+              defaultValue="Мы используем комплектующие исключительно от ведущих европейских производителей."
+              as="span"
+              multiline
+            />
           </motion.p>
         </div>
 
@@ -107,7 +116,11 @@ export function PartnersSection() {
                     className="font-display text-xl lg:text-2xl font-bold tracking-tight transition-colors duration-300 group-hover:text-[var(--saga-primary)]"
                     style={{ color: "rgba(22,40,50,0.25)" }}
                   >
-                    {partner.name}
+                    <Editable
+                      contentKey={`home.partners.item${i + 1}_name`}
+                      defaultValue={partner.name}
+                      as="span"
+                    />
                   </span>
                 </div>
 
@@ -116,7 +129,11 @@ export function PartnersSection() {
                   className="relative text-[10px] uppercase tracking-[0.15em] transition-colors duration-300"
                   style={{ color: "rgba(22,40,50,0.2)" }}
                 >
-                  {partner.desc}
+                  <Editable
+                    contentKey={`home.partners.item${i + 1}_desc`}
+                    defaultValue={partner.desc}
+                    as="span"
+                  />
                 </span>
 
                 {/* Bottom line */}
@@ -145,7 +162,7 @@ export function PartnersSection() {
                   className="mx-8 lg:mx-12 font-display text-2xl lg:text-3xl font-bold select-none"
                   style={{ color: "rgba(22,40,50,0.06)" }}
                 >
-                  {partner.name}
+                  {get(`home.partners.item${(i % partners.length) + 1}_name`, partner.name)}
                 </span>
               ))}
             </motion.div>
@@ -160,7 +177,7 @@ export function PartnersSection() {
                   className="mx-8 lg:mx-12 font-display text-2xl lg:text-3xl font-bold select-none"
                   style={{ color: "rgba(22,40,50,0.06)" }}
                 >
-                  {partner.name}
+                  {get(`home.partners.item${(i % partners.length) + 1}_name`, partner.name)}
                 </span>
               ))}
             </motion.div>
