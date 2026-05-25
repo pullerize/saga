@@ -185,6 +185,10 @@ export default function FormulasPage() {
   // Системы из БД (включая новые, у которых ещё нет формул) — чтобы их можно
   // было выбрать и добавить формулы. Ключ соответствия — имя системы.
   const [dbSystems, setDbSystems] = useState<Array<{ name: string; subsystems: string[] }>>([]);
+  // Имя системы → набор ключей параметров (характеристик), реально привязанных к
+  // её подсистемам (subsystem.params). Используется, чтобы в редакторе формул
+  // показывать только характеристики этой системы, а не все подряд.
+  const [paramKeysBySystem, setParamKeysBySystem] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -224,8 +228,23 @@ export default function FormulasPage() {
     try {
       const res = await fetch("/api/systems");
       if (res.ok) {
-        const rows: Array<{ name: string; subsystems?: Array<{ name: string }> }> = await res.json();
+        const rows: Array<{
+          name: string;
+          subsystems?: Array<{ name: string; params?: Record<string, unknown> | null }>;
+        }> = await res.json();
         setDbSystems(rows.map((s) => ({ name: s.name, subsystems: (s.subsystems ?? []).map((sub) => sub.name) })));
+        // Собираем ключи параметров по системе (объединение по подсистемам).
+        const map: Record<string, string[]> = {};
+        rows.forEach((s) => {
+          const keys = new Set<string>();
+          (s.subsystems ?? []).forEach((sub) => {
+            if (sub.params && typeof sub.params === "object") {
+              Object.keys(sub.params).forEach((k) => keys.add(k));
+            }
+          });
+          map[s.name] = Array.from(keys);
+        });
+        setParamKeysBySystem(map);
       }
     } catch { /* ignore */ }
   }, []);
@@ -250,6 +269,17 @@ export default function FormulasPage() {
       subsystems: Array.from(subs),
     }));
   }, [formulas, dbSystems]);
+
+  // Характеристики для редактора формул выбранной системы: параметры её
+  // подсистем + базовые переменные проёма (всегда доступны в расчёте).
+  // Раньше показывались ВСЕ характеристики — теперь только релевантные системе.
+  const BASE_PARAM_KEYS = ["full_width", "open_width", "height", "shirina_dveri"];
+  const scopedParamDefs = useMemo(() => {
+    if (!selectedSystem) return paramDefs;
+    const allowed = new Set([...(paramKeysBySystem[selectedSystem] ?? []), ...BASE_PARAM_KEYS]);
+    return paramDefs.filter((d) => allowed.has(d.key));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramDefs, selectedSystem, paramKeysBySystem]);
 
   // Door width formulas per subsystem (unique per subsystem)
   const doorWidthFormulas = useMemo(() => {
@@ -493,7 +523,7 @@ export default function FormulasPage() {
                           <FormulaInput
                             value={newFormula}
                             onChange={setNewFormula}
-                            paramDefs={paramDefs}
+                            paramDefs={scopedParamDefs}
                             saving={saving}
                             onSave={handleCreate}
                             onCancel={closeAdd}
@@ -541,7 +571,7 @@ export default function FormulasPage() {
                                 <FormulaInput
                                   value={editValue}
                                   onChange={setEditValue}
-                                  paramDefs={paramDefs}
+                                  paramDefs={scopedParamDefs}
                                   saving={saving}
                                   onSave={() => handleSave(f.id, editValue, f.componentName)}
                                   onCancel={() => setEditingId(null)}
@@ -591,7 +621,7 @@ export default function FormulasPage() {
                                 <FormulaInput
                                   value={editValue}
                                   onChange={setEditValue}
-                                  paramDefs={paramDefs}
+                                  paramDefs={scopedParamDefs}
                                   saving={saving}
                                   onSave={() => handleSave(f.id, editValue, editName)}
                                   onCancel={() => setEditingId(null)}
