@@ -37,7 +37,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "subsystemName должен быть строкой" }, { status: 400 });
   }
 
-  const systemName = SLUG_TO_NAME[systemSlug];
+  // Имя системы для поиска формул. Для встроенных систем берём из SLUG_TO_NAME
+  // (там имя в таблице формул может отличаться от DoorSystem.name), для новых —
+  // из БД по slug. Раньше использовался только хардкод, поэтому новые системы
+  // (которых нет в SLUG_TO_NAME) всегда уходили в legacy и не считались.
+  const system = await prisma.doorSystem.findUnique({
+    where: { slug: systemSlug },
+    include: { subsystems: true },
+  });
+  const systemName = SLUG_TO_NAME[systemSlug] ?? system?.name;
   if (!systemName) {
     return NextResponse.json({ source: "legacy" });
   }
@@ -57,11 +65,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ source: "legacy" });
   }
 
-  // Load subsystem params from DoorSystem
-  const system = await prisma.doorSystem.findUnique({
-    where: { slug: systemSlug },
-    include: { subsystems: true },
-  });
   const sub = system?.subsystems.find((s) => s.name === subsystemName);
   const params = (sub?.params as Record<string, number>) ?? {};
 
