@@ -126,6 +126,25 @@ model Component {
   updatedAt DateTime @updatedAt
 }
 
+// ── System-scoped component prices ──
+// Цена компонента в рамках конкретной системы. Один и тот же компонент по имени
+// (например «Профиль вертикальный (6м)») может стоить в разных системах разную
+// цену. Если запись есть — используется в расчёте этой системы. Если нет —
+// fallback на Component.defaultPrice. CompanyPrice (от партнёра) перебивает
+// и SystemPrice, и defaultPrice.
+model SystemPrice {
+  id            String   @id @default(cuid())
+  systemName    String
+  componentName String
+  price         Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([systemName, componentName])
+  @@index([systemName])
+}
+
 // ── Company-scoped component prices ──
 // Переопределение цены компонента на уровне компании. Если у компании задана
 // своя цена компонента — в расчётах её карточек используется она, иначе

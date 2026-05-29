@@ -93,9 +93,16 @@ export async function POST(req: Request) {
     const rows = await prisma.companyPrice.findMany({ where: { companyId } });
     rows.forEach((r) => { priceOverride[r.componentId] = r.price; });
   }
-  // Эффективная цена компонента: переопределение компании или базовая.
-  const effectivePrice = (c: { id: string; defaultPrice: number }) =>
-    priceOverride[c.id] ?? c.defaultPrice;
+  // Системные цены: один и тот же компонент в разных системах может стоить
+  // разные деньги. Ключ — имя компонента из формулы.
+  const systemPriceMap: Record<string, number> = {}; // componentName → price
+  const systemPrices = await prisma.systemPrice.findMany({ where: { systemName } });
+  systemPrices.forEach((p) => { systemPriceMap[p.componentName] = p.price; });
+  // Эффективная цена: CompanyPrice (партнёр) → SystemPrice (этой системы) →
+  // Component.defaultPrice (глобальная база). formulaName — имя из формулы,
+  // нужно для системного оверрайда.
+  const effectivePrice = (c: { id: string; defaultPrice: number }, formulaName?: string) =>
+    priceOverride[c.id] ?? (formulaName ? systemPriceMap[formulaName] : undefined) ?? c.defaultPrice;
 
   // Load component prices
   const dbComponents = await prisma.component.findMany();
@@ -240,7 +247,7 @@ export async function POST(req: Request) {
     let unit = "шт";
     const matchedComp = findComponent(f.componentName);
     if (matchedComp) {
-      price = effectivePrice(matchedComp);
+      price = effectivePrice(matchedComp, f.componentName);
     }
 
     const sum = Math.round(qty * price * 100) / 100;
