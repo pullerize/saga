@@ -56,11 +56,12 @@ function tokenize(formula: string, paramNames: string[]): Token[] {
       tokens.push({ type: "op", value: s[i] }); i++; continue;
     }
 
-    // Number
-    if (/[0-9.]/.test(s[i])) {
+    // Number (десятичная запятая русская «0,5» считается как «0.5»).
+    if (/[0-9]/.test(s[i])) {
       let num = "";
-      while (i < s.length && /[0-9.]/.test(s[i])) { num += s[i]; i++; }
-      tokens.push({ type: "number", value: num, num: parseFloat(num) }); continue;
+      while (i < s.length && /[0-9.,]/.test(s[i])) { num += s[i]; i++; }
+      const normalized = num.replace(",", ".");
+      tokens.push({ type: "number", value: num, num: parseFloat(normalized) }); continue;
     }
 
     // Try function names
