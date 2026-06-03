@@ -50,11 +50,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ source: "legacy" });
   }
 
-  // Load formulas from SystemFormula table
-  const dbFormulas = await prisma.systemFormula.findMany({
+  // Load formulas from SystemFormula table.
+  // Формулы концептуально работают для ВСЕХ подсистем системы (свои params у
+  // каждой подсистемы дают свой результат). Если для конкретной подсистемы
+  // формул нет (например, добавили только на одну) — берём набор любой
+  // подсистемы этой системы, дедуплицируем по componentName.
+  let dbFormulas = await prisma.systemFormula.findMany({
     where: { systemName, subsystemName },
     orderBy: { sortOrder: "asc" },
   });
+  if (dbFormulas.length === 0) {
+    const anySub = await prisma.systemFormula.findMany({
+      where: { systemName },
+      orderBy: { sortOrder: "asc" },
+    });
+    const seen = new Set<string>();
+    dbFormulas = anySub.filter((f) => {
+      if (seen.has(f.componentName)) return false;
+      seen.add(f.componentName);
+      return true;
+    });
+  }
 
   // Also load "Общие" formulas
   const commonFormulas = await prisma.systemFormula.findMany({
