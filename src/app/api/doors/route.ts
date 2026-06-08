@@ -98,6 +98,15 @@ export async function POST(req: Request) {
   if (!svgContent || svgContent.length > MAX_SVG_BYTES) {
     return NextResponse.json({ error: "Некорректный или слишком большой SVG" }, { status: 400 });
   }
+  // Проверка, что это действительно SVG-файл, а не PNG/JPG/мусор. SVG — это
+  // текст, должен начинаться с <?xml или <svg (BOM/пробелы допустимы).
+  const head = svgContent.replace(/^﻿/, "").trimStart().slice(0, 200).toLowerCase();
+  if (!head.startsWith("<?xml") && !head.startsWith("<svg")) {
+    return NextResponse.json(
+      { error: "Это не SVG-файл. «Вид двери» принимает только векторные SVG (расширение .svg). Фото (PNG/JPG) не подойдут — нужен SVG-чертёж." },
+      { status: 415 },
+    );
+  }
   const lower = svgContent.toLowerCase();
   if (lower.includes("<!doctype") || lower.includes("<!entity")) {
     return NextResponse.json({ error: "SVG с DOCTYPE/ENTITY недопустим" }, { status: 415 });
