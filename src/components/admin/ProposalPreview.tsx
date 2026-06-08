@@ -24,6 +24,10 @@ import { Pencil, Check, X, FileText } from "lucide-react";
  * Convert SVG to PNG via server (sharp) and return base64 data URL + dimensions.
  */
 async function svgToPngViaServer(svgContent: string): Promise<{ dataUrl: string; w: number; h: number }> {
+  // Плейсхолдеры из buildDisplaySchemes идут с пустым svgContent — нет смысла
+  // дёргать API ради 400 «Пустой SVG» (только спам в консоли). Возвращаем
+  // пустой результат сразу.
+  if (!svgContent || !svgContent.trim()) return { dataUrl: "", w: 0, h: 0 };
   const res = await fetch("/api/svg-to-png", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
