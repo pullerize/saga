@@ -169,8 +169,10 @@ export function PortfolioSection() {
                   indexLabel={String(i + 1).padStart(2, "0")}
                 />
 
-                {/* Hover overlay */}
-                <div className="absolute inset-0 flex items-end p-6 opacity-0 group-hover:opacity-100 transition-all duration-500">
+                {/* Hover overlay (декоративный, без интерактива) — pointer-events-none,
+                    иначе перехватывает клики по кнопке «Заменить» у EditableMedia
+                    под ним и кнопка не срабатывает в CMS-режиме. */}
+                <div className="absolute inset-0 flex items-end p-6 opacity-0 group-hover:opacity-100 transition-all duration-500 pointer-events-none">
                   {/* Expand button */}
                   <div className="absolute top-5 right-5">
                     <div
@@ -290,27 +292,28 @@ function ProjectCardMedia({
             className="w-full h-full object-cover"
           />
         ) : (
-          // В режиме редактирования без фото — упрощённый плейсхолдер с
-          // активной кнопкой «Заменить» в углу.
-          <div
-            className="absolute inset-0 flex items-center justify-center"
-            style={{
-              backgroundColor: isEven ? "var(--saga-primary)" : "var(--brand-100)",
-            }}
-          >
+          // В режиме редактирования без фото — кнопка «Заменить» EditableMedia
+          // в правом верхнем углу карточки. Подсказку «Кликните Заменить →»
+          // выводим отдельным абсолютным span'ом по центру.
+          <>
             <EditableMedia
               contentKey={imageKey}
               defaultValue=""
               mediaType="image"
               alt=""
-              className="hidden"
+              wrapperClassName="absolute inset-0 w-full h-full"
             />
-            <span className="text-xs tracking-[0.2em] uppercase" style={{
-              color: isEven ? "rgba(255,255,255,0.5)" : "rgba(22,40,50,0.45)",
-            }}>
-              Кликните «Заменить» →
-            </span>
-          </div>
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span
+                className="text-xs tracking-[0.2em] uppercase"
+                style={{
+                  color: isEven ? "rgba(255,255,255,0.5)" : "rgba(22,40,50,0.45)",
+                }}
+              >
+                Кликните «Заменить» →
+              </span>
+            </div>
+          </>
         )}
       </div>
     );

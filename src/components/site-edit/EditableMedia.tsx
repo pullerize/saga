@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useSiteEdit } from "./SiteEditProvider";
 import { cn } from "@/lib/utils";
-import { ImagePlus, Loader2 } from "lucide-react";
+import { ImagePlus, Loader2, Trash2 } from "lucide-react";
 
 interface EditableMediaProps {
   contentKey: string;
@@ -63,6 +63,17 @@ export function EditableMedia({
     }
   }
 
+  async function handleDelete() {
+    if (!url) return;
+    if (!window.confirm("Удалить эту картинку?")) return;
+    setError("");
+    try {
+      await set(contentKey, "", mediaType);
+    } catch {
+      setError("Не удалось удалить");
+    }
+  }
+
   return (
     <div className={cn(
       "relative",
@@ -96,16 +107,30 @@ export function EditableMedia({
             className="hidden"
             onChange={handleFile}
           />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className="absolute top-2 right-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-700 text-white text-xs font-medium shadow-md hover:bg-brand-800 disabled:opacity-60"
-            aria-label="Заменить медиа"
-          >
-            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
-            {uploading ? "Загрузка…" : "Заменить"}
-          </button>
+          <div className="absolute top-2 right-2 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-700 text-white text-xs font-medium shadow-md hover:bg-brand-800 disabled:opacity-60"
+              aria-label="Заменить медиа"
+            >
+              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
+              {uploading ? "Загрузка…" : "Заменить"}
+            </button>
+            {url && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={uploading}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-red-600 text-white text-xs font-medium shadow-md hover:bg-red-700 disabled:opacity-60"
+                aria-label="Удалить медиа"
+                title="Удалить"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           {error && (
             <p className="absolute top-12 right-2 text-[10px] text-destructive bg-white px-2 py-1 rounded shadow">
               {error}

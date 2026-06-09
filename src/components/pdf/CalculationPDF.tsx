@@ -48,6 +48,12 @@ export interface CalculationPDFProps {
   schemeSvgs?: string[];
   schemeSizes?: Array<{ w: number; h: number }>;
   /**
+   * Готовые подписи «Вида сверху»: позиция в нормализованных (0..1) координатах
+   * SVG viewBox + текст. Рендерятся overlay'ем тем же стилем, что у
+   * подписей «Вида системы»/«Вида двери».
+   */
+  topLabels?: Array<{ xNorm: number; yNorm: number; text: string }>;
+  /**
    * Соотношения «одна дверь / весь viewBox» в системном и дверном SVG.
    * Если задано — слот «Вид двери» рендерится так, чтобы реальная дверь
    * внутри его SVG совпала по визуальным размерам с одной дверью в «Вид
@@ -169,6 +175,11 @@ const s = StyleSheet.create({
   colUnit: { width: "10%", textAlign: "center" },
   colPrice: { width: "18%", textAlign: "right" },
   colTotal: { width: "18%", textAlign: "right" },
+
+  /* Подзаголовок группы внутри таблицы (Комплектующие/Шотланки/Стекло/Доп. расходы). */
+  tableGroupHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: IVORY, paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 0.5, borderBottomColor: BORDER },
+  tableGroupLabel: { fontSize: 7.5, fontFamily: "Roboto", fontWeight: 700, color: BRAND, textTransform: "uppercase", letterSpacing: 1 },
+  tableGroupTotal: { fontSize: 7.5, fontFamily: "Roboto", fontWeight: 700, color: BRAND, textAlign: "right" },
 
   /* Total block */
   totalBlock: { backgroundColor: BRAND_DARK, borderRadius: 6, paddingVertical: 16, paddingHorizontal: 22, marginBottom: 22 },
@@ -295,7 +306,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
     fullWidth, height, doorWidth, openWidth,
     glassType, shotlanType,
     components, totalPrice,
-    services, customServices, variant, schemeSvgs, schemeSizes, glassImageUrl, railImageUrl, date, notes,
+    services, customServices, variant, schemeSvgs, schemeSizes, topLabels, glassImageUrl, railImageUrl, date, notes,
     partnerLogoUrl, partnerCompanyName, doorBoxRatio,
   } = props;
   // Имя сторонней компании показываем только если это не Saga Group.
@@ -805,6 +816,10 @@ export default function CalculationPDF(props: CalculationPDFProps) {
               function renderRow2(key: string) {
                 const p = row2[0];
                 if (!p) return null;
+                // Стиль подписей размеров — ТОТ ЖЕ, что у системы/двери,
+                // чтобы шрифт и размер совпадали один к одному.
+                const dimNumStyle = { fontSize: 8, fontFamily: "Roboto" as const, fontWeight: 700 as const, color: BRAND };
+                const imgH = Math.round(r2DrawH);
                 return (
                   <View
                     key={key}
@@ -814,10 +829,35 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                         влево. */}
                     <View style={{ width: r1TotalW, alignItems: "center" }}>
                       <Text style={s.schemeLabel}>{p.label}</Text>
-                      <Image
-                        src={p.src}
-                        style={{ width: r2DrawW, height: Math.round(r2DrawH) }}
-                      />
+                      <View style={{ width: r2DrawW, height: imgH, position: "relative" }}>
+                        <Image
+                          src={p.src}
+                          style={{ width: r2DrawW, height: imgH }}
+                        />
+                        {(topLabels ?? []).map((lbl, k) => {
+                          // RN-PDF не поддерживает transform: translate(-50%, -50%),
+                          // поэтому центрируем через фикс ширину/высоту и сдвиг.
+                          const labelW = 60;
+                          const labelH = 10;
+                          const left = Math.round(lbl.xNorm * r2DrawW - labelW / 2);
+                          const top = Math.round(lbl.yNorm * imgH - labelH / 2);
+                          return (
+                            <Text
+                              key={k}
+                              style={{
+                                ...dimNumStyle,
+                                position: "absolute",
+                                left,
+                                top,
+                                width: labelW,
+                                textAlign: "center",
+                              }}
+                            >
+                              {lbl.text}
+                            </Text>
+                          );
+                        })}
+                      </View>
                     </View>
                   </View>
                 );
@@ -920,17 +960,61 @@ export default function CalculationPDF(props: CalculationPDFProps) {
         <FixedHeader systemName={systemName} date={formattedDate} partnerCompanyName={headerCompanyName} />
 
         <View style={s.body}>
-          {/* Components table — keep title + table header + first few rows glued
-              together so the title never lands alone at the bottom of a page. */}
+          {/* Components table — группируем по category (group): Комплектующие,
+              Шотланки, Стекло, Доп. расходы. Подзаголовок группы рисуется внутри
+              таблицы как полоса (как в HTML-превью). Sticky-блок (заголовок +
+              шапка + первые ~25 строк) держим в wrap=false, чтобы заголовок
+              никогда не оставался один в конце страницы. */}
           {(() => {
+            const GROUPS = [
+              { key: "component", label: "Комплектующие" },
+              { key: "shotlan", label: "Шотланки" },
+              { key: "glass", label: "Стекло" },
+              { key: "extra", label: "Дополнительные расходы" },
+            ];
+            // Раскладываем в плоский поток строк: подзаголовок группы → её товары → ...
+            type FlatRow =
+              | { kind: "groupHeader"; key: string; label: string; total: number }
+              | { kind: "item"; key: string; idx: number; item: typeof components[number] };
+            const flat: FlatRow[] = [];
+            let globalIdx = 0;
+            for (const g of GROUPS) {
+              const items = components.filter((c) => (c.group || "component") === g.key);
+              if (items.length === 0) continue;
+              const groupTotal = items.reduce((acc, c) => acc + c.sum, 0);
+              flat.push({ kind: "groupHeader", key: `gh-${g.key}`, label: g.label, total: groupTotal });
+              for (const c of items) {
+                globalIdx++;
+                flat.push({ kind: "item", key: `${c.key}-${globalIdx}`, idx: globalIdx, item: c });
+              }
+            }
+
+            const renderRow = (r: FlatRow) =>
+              r.kind === "groupHeader" ? (
+                <View key={r.key} style={s.tableGroupHeader}>
+                  <Text style={s.tableGroupLabel}>{r.label}</Text>
+                  <Text style={s.tableGroupTotal}>{fmt(r.total)} у.е.</Text>
+                </View>
+              ) : (
+                <View key={r.key} style={[s.tableRow, r.idx % 2 === 1 ? s.tableRowAlt : {}]}>
+                  <Text style={[s.tableCell, s.colNum]}>{r.idx}</Text>
+                  <Text style={[s.tableCell, s.colName]}>{r.item.name}</Text>
+                  <Text style={[s.tableCell, s.colQty]}>{typeof r.item.qty === "number" && r.item.qty % 1 !== 0 ? r.item.qty.toFixed(2) : r.item.qty}</Text>
+                  <Text style={[s.tableCell, s.colUnit]}>{r.item.unit}</Text>
+                  <Text style={[s.tableCell, s.colPrice]}>{fmt(r.item.price)}</Text>
+                  <Text style={[s.tableCellBold, s.colTotal]}>{fmt(r.item.sum)}</Text>
+                </View>
+              );
+
             const stickyCount = 25;
-            const sticky = components.slice(0, stickyCount);
-            const rest = components.slice(stickyCount);
+            const sticky = flat.slice(0, stickyCount);
+            const rest = flat.slice(stickyCount);
+
             return (
               <>
                 <View wrap={false}>
-                  <Text style={s.sectionTitle}>Комплектующие</Text>
-                  <View style={[s.table, { marginBottom: 0, borderBottomWidth: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }]}>
+                  <Text style={s.sectionTitle}>Спецификация</Text>
+                  <View style={[s.table, rest.length > 0 ? { marginBottom: 0, borderBottomWidth: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } : {}]}>
                     <View style={s.tableHeader}>
                       <Text style={[s.tableHeaderCell, s.colNum]}>#</Text>
                       <Text style={[s.tableHeaderCell, s.colName]}>Наименование</Text>
@@ -939,33 +1023,12 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                       <Text style={[s.tableHeaderCell, s.colPrice]}>Цена</Text>
                       <Text style={[s.tableHeaderCell, s.colTotal]}>Сумма</Text>
                     </View>
-                    {sticky.map((c, i) => (
-                      <View key={c.key + i} style={[s.tableRow, i % 2 === 1 ? s.tableRowAlt : {}]}>
-                        <Text style={[s.tableCell, s.colNum]}>{i + 1}</Text>
-                        <Text style={[s.tableCell, s.colName]}>{c.name}</Text>
-                        <Text style={[s.tableCell, s.colQty]}>{typeof c.qty === "number" && c.qty % 1 !== 0 ? c.qty.toFixed(2) : c.qty}</Text>
-                        <Text style={[s.tableCell, s.colUnit]}>{c.unit}</Text>
-                        <Text style={[s.tableCell, s.colPrice]}>{fmt(c.price)}</Text>
-                        <Text style={[s.tableCellBold, s.colTotal]}>{fmt(c.sum)}</Text>
-                      </View>
-                    ))}
+                    {sticky.map(renderRow)}
                   </View>
                 </View>
                 {rest.length > 0 && (
                   <View style={[s.table, { marginTop: 0, borderTopWidth: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }]}>
-                    {rest.map((c, i) => {
-                      const realIdx = stickyCount + i;
-                      return (
-                        <View key={c.key + realIdx} style={[s.tableRow, realIdx % 2 === 1 ? s.tableRowAlt : {}]}>
-                          <Text style={[s.tableCell, s.colNum]}>{realIdx + 1}</Text>
-                          <Text style={[s.tableCell, s.colName]}>{c.name}</Text>
-                          <Text style={[s.tableCell, s.colQty]}>{typeof c.qty === "number" && c.qty % 1 !== 0 ? c.qty.toFixed(2) : c.qty}</Text>
-                          <Text style={[s.tableCell, s.colUnit]}>{c.unit}</Text>
-                          <Text style={[s.tableCell, s.colPrice]}>{fmt(c.price)}</Text>
-                          <Text style={[s.tableCellBold, s.colTotal]}>{fmt(c.sum)}</Text>
-                        </View>
-                      );
-                    })}
+                    {rest.map(renderRow)}
                   </View>
                 )}
               </>

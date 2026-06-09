@@ -20,7 +20,12 @@ async function resolveActorCompany(userId: string) {
   };
 }
 
-// GET — list cards (admin: all; partner/colleague: own company only)
+// GET — list cards.
+//   ADMIN   — все карточки (вся история).
+//   MANAGER — только свои (созданные им самим). Менеджер не должен видеть КП
+//             коллег по той же компании.
+//   PARTNER — все карточки своей компании (партнёр обычно один в компании,
+//             но если их несколько — внутри компании видимость общая).
 export async function GET() {
   const { error, session } = await requireAuth();
   if (error) return error;
@@ -28,6 +33,14 @@ export async function GET() {
 
   if (isAdminLike(role)) {
     const cards = await prisma.clientCard.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    return NextResponse.json(cards);
+  }
+
+  if (role === "MANAGER") {
+    const cards = await prisma.clientCard.findMany({
+      where: { createdByUserId: session!.user.id },
       orderBy: { createdAt: "desc" },
     });
     return NextResponse.json(cards);
@@ -123,17 +136,22 @@ export async function PUT(req: Request) {
 
   const role = session!.user.role;
   if (!isAdminLike(role)) {
-    // Не-админ может редактировать карточку, если он:
-    //   1) сам её создал (надёжная проверка по createdByUserId), ИЛИ
-    //   2) состоит в той же компании (по имени, для совместимости).
-    const me = await prisma.user.findUnique({
-      where: { id: session!.user.id },
-      select: { companyName: true },
-    });
+    // MANAGER — только свои карточки.
+    // PARTNER — свои или той же компании (несколько партнёров в одной компании).
     const isOwner = existing.createdByUserId === session!.user.id;
-    const isSameCompany = !!me?.companyName && existing.companyName === me.companyName;
-    if (!isOwner && !isSameCompany) {
-      return NextResponse.json({ error: "Нет доступа к карточке" }, { status: 403 });
+    if (role === "MANAGER") {
+      if (!isOwner) {
+        return NextResponse.json({ error: "Нет доступа к карточке" }, { status: 403 });
+      }
+    } else {
+      const me = await prisma.user.findUnique({
+        where: { id: session!.user.id },
+        select: { companyName: true },
+      });
+      const isSameCompany = !!me?.companyName && existing.companyName === me.companyName;
+      if (!isOwner && !isSameCompany) {
+        return NextResponse.json({ error: "Нет доступа к карточке" }, { status: 403 });
+      }
     }
   }
 
@@ -187,14 +205,20 @@ export async function DELETE(req: Request) {
 
   const role = session!.user.role;
   if (!isAdminLike(role)) {
-    const me = await prisma.user.findUnique({
-      where: { id: session!.user.id },
-      select: { companyName: true },
-    });
     const isOwner = existing.createdByUserId === session!.user.id;
-    const isSameCompany = !!me?.companyName && existing.companyName === me.companyName;
-    if (!isOwner && !isSameCompany) {
-      return NextResponse.json({ error: "Нет доступа к карточке" }, { status: 403 });
+    if (role === "MANAGER") {
+      if (!isOwner) {
+        return NextResponse.json({ error: "Нет доступа к карточке" }, { status: 403 });
+      }
+    } else {
+      const me = await prisma.user.findUnique({
+        where: { id: session!.user.id },
+        select: { companyName: true },
+      });
+      const isSameCompany = !!me?.companyName && existing.companyName === me.companyName;
+      if (!isOwner && !isSameCompany) {
+        return NextResponse.json({ error: "Нет доступа к карточке" }, { status: 403 });
+      }
     }
   }
 

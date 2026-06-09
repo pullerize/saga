@@ -286,7 +286,7 @@ async function main() {
         },
       },
       {
-        name: '3+0|3+0', min: 3230, max: 9000,
+        name: '3+0 | 3+0', min: 3230, max: 9000,
         params: {
           num_doors: 6, num_rails: 3, num_side_caps: 2,
           num_bottom_double_caps: 2, num_bottom_single_caps: 2,
@@ -299,7 +299,7 @@ async function main() {
         },
       },
       {
-        name: '4+0|4+0', min: 4295, max: 12000,
+        name: '4+0 | 4+0', min: 4295, max: 12000,
         params: {
           num_doors: 8, num_rails: 4, num_side_caps: 2,
           num_bottom_double_caps: 3, num_bottom_single_caps: 2,

@@ -178,12 +178,12 @@ export function calcDoorWidth(width: number, subsystem: string | null, params: S
     case '6+0': raw = (width + 87) / params.num_doors; break;
     case '7+0': raw = (width + 105) / params.num_doors; break;
     case '8+0': raw = (width + 122) / params.num_doors; break;
-    case '3+0|3+0': raw = (width + 70 - 15) / params.num_doors; break;
-    case '4+0|4+0': raw = (width + 105 - 15) / params.num_doors; break;
-    case '5+0|5+0': raw = (width + 140 - 15) / params.num_doors; break;
-    case '6+0|6+0': raw = (width + 175 - 15) / params.num_doors; break;
-    case '7+0|7+0': raw = (width + 210 - 15) / params.num_doors; break;
-    case '8+0|8+0': raw = (width + 245 - 15) / params.num_doors; break;
+    case '3+0 | 3+0': raw = (width + 70 - 15) / params.num_doors; break;
+    case '4+0 | 4+0': raw = (width + 105 - 15) / params.num_doors; break;
+    case '5+0 | 5+0': raw = (width + 140 - 15) / params.num_doors; break;
+    case '6+0 | 6+0': raw = (width + 175 - 15) / params.num_doors; break;
+    case '7+0 | 7+0': raw = (width + 210 - 15) / params.num_doors; break;
+    case '8+0 | 8+0': raw = (width + 245 - 15) / params.num_doors; break;
     default: {
       const clear = subsystem.replace(/[()+\s]/g, '');
       switch (clear) {

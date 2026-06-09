@@ -549,6 +549,10 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
   // systemsData (новые системы из /admin/systems). Заполняется fetch-эффектом
   // ниже. Без этого новые системы не появлялись в выборе при создании карточки.
   const [dbSystemDefs, setDbSystemDefs] = useState<Record<string, SystemDef>>({});
+  // Активные имена подсистем по системе из БД. Нужно, чтобы в калькуляторе
+  // не показывались легаси-подсистемы из захардкоженого systemsData, которых
+  // в БД нет (админ удалил/не создавал). Ключ — slug системы.
+  const [dbSubsystemNames, setDbSubsystemNames] = useState<Record<string, Set<string>> | null>(null);
 
   // Захардкоженные системы + новые из БД (DB-only). systemsData имеет приоритет
   // для известных систем (точные params для legacy-движка).
@@ -568,14 +572,22 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
     referralSource &&
     (!referralNeedsDetail || referralDetail.trim());
 
-  // Filter subsystems
+  // Filter subsystems.
+  // 1) по ширине: подсистема показывается, только если ширина проёма попадает
+  //    в её диапазон [min, max];
+  // 2) по БД: если для системы пришёл список подсистем из БД — оставляем только
+  //    те, что есть в БД (легаси-подсистемы из захардкоженого systemsData,
+  //    которых админ не создавал, не должны попадать в выбор).
+  //    Если список ещё не загружен (null) — показываем как раньше.
   const availableSubsystems = useMemo(() => {
     if (!system) return [];
     const w = system.extraField ? openWidth : fullWidth;
+    const dbAllowed = systemSlug ? dbSubsystemNames?.[systemSlug] : undefined;
     return Object.entries(system.subsystems)
       .filter(([, sub]) => w >= sub.min && w <= sub.max)
+      .filter(([key]) => (dbAllowed ? dbAllowed.has(key) : true))
       .map(([key]) => key);
-  }, [system, fullWidth, openWidth]);
+  }, [system, fullWidth, openWidth, systemSlug, dbSubsystemNames]);
 
   const effectiveSubsystem = useMemo(() => {
     if (subsystemId && availableSubsystems.includes(subsystemId)) return subsystemId;
@@ -695,10 +707,12 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
         setActiveSlugs(new Set(rows.map((r) => r.slug)));
         const sysMap: Record<string, { video: string | null; poster: string | null }> = {};
         const subMap: Record<string, Record<string, { video: string | null; poster: string | null }>> = {};
+        const subNames: Record<string, Set<string>> = {};
         const defs: Record<string, SystemDef> = {};
         rows.forEach((r) => {
           sysMap[r.slug] = { video: r.videoUrl ?? null, poster: r.posterUrl ?? null };
           subMap[r.slug] = {};
+          subNames[r.slug] = new Set((r.subsystems ?? []).map((s) => s.name));
           (r.subsystems ?? []).forEach((sub) => {
             subMap[r.slug][sub.name] = { video: sub.videoUrl ?? null, poster: sub.posterUrl ?? null };
           });
@@ -727,12 +741,14 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
         });
         setDbSystemMedia(sysMap);
         setDbSubsystemMedia(subMap);
+        setDbSubsystemNames(subNames);
         setDbSystemDefs(defs);
       })
       .catch(() => {
         setActiveSlugs(new Set());
         setDbSystemMedia({});
         setDbSubsystemMedia({});
+        setDbSubsystemNames({});
         setDbSystemDefs({});
       });
   }, []);

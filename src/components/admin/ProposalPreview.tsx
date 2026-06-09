@@ -39,6 +39,28 @@ async function svgToPngViaServer(svgContent: string): Promise<{ dataUrl: string;
 }
 
 /**
+ * Преобразует URL (картинка или SVG) в формат, который сможет отрендерить
+ * react-pdf. SVG → PNG data-URL через /api/svg-to-png; растровые форматы
+ * (PNG/JPG/WebP/GIF) — возвращаются без изменений. Используется для иконок
+ * Преимуществ и фото «Рельсы» в PDF, так как @react-pdf/renderer не умеет
+ * рендерить SVG через <Image>.
+ */
+async function imageUrlForPdf(url: string | null | undefined): Promise<string | null> {
+  if (!url) return null;
+  const isSvg = /\.svg(\?|$)/i.test(url);
+  if (!isSvg) return url;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const svg = await r.text();
+    const { dataUrl } = await svgToPngViaServer(svg);
+    return dataUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Inject dimension labels into SVG.
  * Replaces {{WIDTH}}, {{HEIGHT}}, {{DOOR_WIDTH}}, {{DOORS}} placeholders.
  * Also appends dimension lines with arrows below and to the right of the SVG.
@@ -132,6 +154,127 @@ function systemDoorGlassRect(
  *   сдвиг дверной картинки.
  * null, если в одной из картинок нет «двери» (`fill="#D5FFFF"`) или нет «вида двери».
  */
+/**
+ * Извлекает позиции и тексты подписей из top-view SVG (после template-replace).
+ * Парсит каждый <text>...</text>: достаёт tspan x, y и transform=matrix(...)
+ * (если есть), вычисляет визуальную позицию в viewBox и нормализует.
+ *
+ * Возвращает массив { xNorm, yNorm, text } — раскладка рисует overlay-span с тем
+ * же стилем, что у «Вид системы»/«Вид двери», на нужных позициях.
+ */
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => {
+      try { return String.fromCodePoint(parseInt(h, 16)); } catch { return ""; }
+    })
+    .replace(/&#(\d+);/g, (_, d) => {
+      try { return String.fromCodePoint(parseInt(d, 10)); } catch { return ""; }
+    });
+}
+
+function extractTopLabels(svgContent: string): Array<{ xNorm: number; yNorm: number; text: string }> {
+  const vb = getSvgViewBox(svgContent);
+  if (!vb || vb.w <= 0 || vb.h <= 0) return [];
+
+  // Собираем длинные горизонтальные <rect> — это полосы дверей или размерные
+  // линии. По ним будем горизонтально центрировать подписи.
+  type HRect = { x: number; xEnd: number; y: number };
+  const horizRects: HRect[] = [];
+  const rectRe = /<rect\b([^>]*)\/?>/gi;
+  let rm: RegExpExecArray | null;
+  while ((rm = rectRe.exec(svgContent)) !== null) {
+    const a = rm[1] ?? "";
+    const x = parseFloat(a.match(/\bx\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
+    const y = parseFloat(a.match(/\by\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
+    const w = parseFloat(a.match(/\bwidth\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
+    const h = parseFloat(a.match(/\bheight\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) continue;
+    if (w < vb.w * 0.05) continue;          // отсекаем мелкое
+    if (h <= 0 || w / h < 5) continue;      // нужны вытянутые горизонтальные
+    if (y < vb.y || y > vb.y + vb.h) continue;
+    horizRects.push({ x, xEnd: x + w, y });
+  }
+
+  // Группируем по близости Y. Внутри группы X-границы объединяем.
+  type Cluster = { xMin: number; xMax: number; y: number };
+  const clusters: Cluster[] = [];
+  const YTOL = vb.h * 0.08; // ±8% высоты viewBox считаем «той же строкой»
+  horizRects.sort((a, b) => a.y - b.y);
+  for (const r of horizRects) {
+    const c = clusters.find((cl) => Math.abs(cl.y - r.y) <= YTOL);
+    if (c) {
+      c.xMin = Math.min(c.xMin, r.x);
+      c.xMax = Math.max(c.xMax, r.xEnd);
+      c.y = (c.y + r.y) / 2;
+    } else {
+      clusters.push({ xMin: r.x, xMax: r.xEnd, y: r.y });
+    }
+  }
+
+  const result: Array<{ xNorm: number; yNorm: number; text: string }> = [];
+  const textRe = /<text\b([^>]*)>([\s\S]*?)<\/text>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = textRe.exec(svgContent)) !== null) {
+    const attrs = m[1] ?? "";
+    const body = m[2] ?? "";
+
+    // transform=matrix(a,b,c,d,e,f) — поддерживаем без поворота (b=c=0).
+    let a = 1, d = 1, e = 0, f = 0;
+    const tMatch = attrs.match(/\btransform\s*=\s*["']([^"']+)["']/);
+    if (tMatch) {
+      const mat = tMatch[1].match(/matrix\s*\(\s*([-\d.,\s]+)\s*\)/i);
+      if (mat) {
+        const nums = mat[1].split(/[\s,]+/).filter(Boolean).map(Number);
+        if (nums.length >= 6 && nums.every(Number.isFinite)) {
+          a = nums[0]; d = nums[3]; e = nums[4]; f = nums[5];
+        }
+      }
+    }
+
+    // Достаём текст и позицию (из <tspan> либо из самого <text>).
+    const tspanMatch = body.match(/<tspan\b([^>]*)>([\s\S]*?)<\/tspan>/i);
+    const innerAttrs = tspanMatch ? tspanMatch[1] : attrs;
+    const rawInner = (tspanMatch ? tspanMatch[2] : body).replace(/<[^>]+>/g, "").trim();
+    const innerText = decodeXmlEntities(rawInner).replace(/\s+/g, " ").trim();
+    if (!innerText) continue;
+    const xRaw = parseFloat(innerAttrs.match(/\bx\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
+    const yRaw = parseFloat(innerAttrs.match(/\by\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
+    if (!Number.isFinite(xRaw) || !Number.isFinite(yRaw)) continue;
+
+    const visX = a * xRaw + e;
+    const visY = d * yRaw + f;
+
+    // Ищем кластер, ближайший по Y. Если есть — берём его центр X (так подпись
+    // окажется ровно посередине размерной линии/группы полос).
+    let cx = visX;
+    let cy = visY;
+    if (clusters.length > 0) {
+      const best = clusters.reduce(
+        (acc, c) => (Math.abs(c.y - visY) < acc.dy ? { c, dy: Math.abs(c.y - visY) } : acc),
+        { c: clusters[0], dy: Math.abs(clusters[0].y - visY) },
+      );
+      if (best.dy <= vb.h * 0.35) {
+        cx = (best.c.xMin + best.c.xMax) / 2;
+        // Y оставляем по подписи (она над линией, как нарисовал автор).
+        cy = visY;
+      }
+    }
+
+    result.push({
+      xNorm: (cx - vb.x) / vb.w,
+      yNorm: (cy - vb.y) / vb.h,
+      text: innerText,
+    });
+  }
+  return result;
+}
+
 function computeDoorBox(
   renderedSysSvg: string,
   renderedDoorSvg: string | null,
@@ -196,6 +339,7 @@ function renderSvgWithDimensions(
     return `<text${cleaned} font-family="Arial, Helvetica, sans-serif" font-weight="700">`;
   });
 
+
   // ──────────────────────────────────────────────────────────────────────
   // «Вид системы» (schemeIndex 0): фиксированный квадратный «слот»
   //   SYSTEM_SLOT_SIDE × SYSTEM_SLOT_SIDE. viewBox схемы всегда такого размера.
@@ -245,6 +389,13 @@ function renderSvgWithDimensions(
   if (!vbMatch) return svg;
   const parts = vbMatch[1].split(/[\s,]+/).map(Number);
   const vbX = parts[0], vbY = parts[1], svgW = parts[2], svgH = parts[3];
+
+  // Для «Вида сверху» (schemeIndex 2): удаляем все <text> из SVG.
+  // Подписи «X мм» рисуются ВНЕ SVG как HTML-overlay (см. topLabels), с тем
+  // же шрифтом и размером, что и у «Вид системы»/«Вид двери».
+  if (schemeIndex === 2) {
+    svg = svg.replace(/<text\b[^>]*>[\s\S]*?<\/text>/gi, "");
+  }
 
   // Опорный прямоугольник для размерных линий = весь viewBox (для «вида системы»
   // — весь слот; линии не зависят от размера системы, меняются только цифры).
@@ -364,36 +515,13 @@ function renderSvgWithDimensions(
   // процедурного SVG (buildCascade3plus0Top), и для любого загруженного
   // top-view. Длина считается в единицах viewBox SVG — для процедурного
   // (data-procedural) viewBox в мм, число совпадает с реальной шириной полосы.
+  // Для «Вида сверху» (schemeIndex 2) подписи «… мм» внутри SVG БОЛЬШЕ не
+  // рисуем — их выводит раскладка снаружи (HTML <span> / PDF <Text>) с тем же
+  // стилем dimNumStyle, что и у «Вида системы»/«Вида двери». Это даёт одинаковый
+  // шрифт и размер. Позиции полос извлекаются отдельно через extractTopStripes
+  // и оверлеятся поверх картинки.
   if (schemeIndex === 2) {
-    const stripeFs = Math.max(Math.round(Math.max(svgW, svgH) * 0.025), 18);
-    const stripeOffset = Math.round(stripeFs * 0.7);
-    const lineRe = /<line\b([^/>]*?)\/?>/g;
-    type Stripe = { x1: number; x2: number; y: number };
-    const stripes: Stripe[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = lineRe.exec(svg)) !== null) {
-      const a = m[1];
-      const x1 = parseFloat(a.match(/\bx1\s*=\s*["']([\d.\-]+)["']/)?.[1] ?? "");
-      const y1 = parseFloat(a.match(/\by1\s*=\s*["']([\d.\-]+)["']/)?.[1] ?? "");
-      const x2 = parseFloat(a.match(/\bx2\s*=\s*["']([\d.\-]+)["']/)?.[1] ?? "");
-      const y2 = parseFloat(a.match(/\by2\s*=\s*["']([\d.\-]+)["']/)?.[1] ?? "");
-      const sw = parseFloat(a.match(/\bstroke-width\s*=\s*["']([\d.]+)["']/)?.[1] ?? "0");
-      if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) continue;
-      // Горизонтальная (y1 ≈ y2), толстая (stroke-width ≥ 5) и достаточно длинная
-      // (> 5% ширины холста — отсекаем размерные линии и засечки).
-      if (Math.abs(y1 - y2) < 1 && sw >= 5 && Math.abs(x2 - x1) > svgW * 0.05) {
-        stripes.push({ x1: Math.min(x1, x2), x2: Math.max(x1, x2), y: (y1 + y2) / 2 });
-      }
-    }
-    if (stripes.length > 0) {
-      bits.push(`<g font-family="Arial, Helvetica, sans-serif" fill="#0A3C46" font-weight="700" font-size="${stripeFs}">`);
-      for (const s of stripes) {
-        const mid = (s.x1 + s.x2) / 2;
-        const w = Math.round(s.x2 - s.x1);
-        bits.push(`<text x="${mid}" y="${s.y - stripeOffset}" text-anchor="middle">${w} мм</text>`);
-      }
-      bits.push(`</g>`);
-    }
+    // intentionally no bits — labels rendered outside SVG
   }
   const dimLines = bits.join("\n");
 
@@ -846,6 +974,10 @@ export function ProposalPreview({
   ]);
   const [schemeSvgUrls, setSchemeSvgUrls] = useState<string[]>([]);
   const [schemeSizes, setSchemeSizes] = useState<Array<{ w: number; h: number }>>([]);
+  // Подписи «Вида сверху» в нормализованных (0..1) координатах viewBox —
+  // рисуем overlay-span'ы поверх картинки тем же стилем (text-[10px] font-bold
+  // text-brand-700), что и подписи у «Вид системы»/«Вид двери».
+  const [topLabels, setTopLabels] = useState<Array<{ xNorm: number; yNorm: number; text: string }>>([]);
   // Соотношения «одна дверь / весь viewBox» в системном и дверном SVG.
   // Нужны, чтобы в PDF и в превью слот «Вид двери» вышел ровно того же
   // визуального размера, что одна дверь в «Вид системы». Учитываем подписи
@@ -856,6 +988,13 @@ export function ProposalPreview({
     door: { w: number; h: number };
   } | null>(null);
   const [schemeModal, setSchemeModal] = useState<string | null>(null);
+
+  // Заранее сконвертированные SVG → PNG (data-URL) для «Преимуществ» и «Рельсы»
+  // в PDF. react-pdf не рендерит SVG через <Image>, поэтому SVG надо превратить
+  // в PNG до передачи в CalculationPDF. Для не-SVG URL значение совпадает с
+  // оригиналом.
+  const [pdfRailUrl, setPdfRailUrl] = useState<string | null>(null);
+  const [pdfItemIconUrls, setPdfItemIconUrls] = useState<Array<string | null>>([]);
 
   // Системы, реально настроенные в БД. Фильтруем хардкоженый systemsData по этому списку.
   const [activeSystemSlugs, setActiveSystemSlugs] = useState<Set<string> | null>(null);
@@ -893,6 +1032,30 @@ export function ProposalPreview({
       .then((c) => setMyCompany(c))
       .catch(() => setMyCompany(null));
   }, []);
+
+  // SVG → PNG для иконок «Преимуществ» и фото «Рельсы» в PDF. react-pdf не
+  // умеет рендерить SVG через <Image>, поэтому конвертируем заранее. Растровые
+  // URL пробрасываются «как есть» (с дописанным origin).
+  useEffect(() => {
+    let cancelled = false;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const toAbs = (u: string | null | undefined) =>
+      !u ? null : u.startsWith("http") ? u : `${origin}${u}`;
+
+    const railSrc = toAbs(initialData.variant?.railImageUrl);
+    const itemSrcs = (initialData.variant?.items ?? []).map((it) => toAbs(it.iconUrl));
+
+    Promise.all([
+      imageUrlForPdf(railSrc),
+      ...itemSrcs.map((u) => imageUrlForPdf(u)),
+    ]).then(([rail, ...items]) => {
+      if (cancelled) return;
+      setPdfRailUrl(rail);
+      setPdfItemIconUrls(items);
+    });
+
+    return () => { cancelled = true; };
+  }, [initialData.variant?.railImageUrl, initialData.variant?.items]);
 
   // Все SVG-схемы подсистемы из /admin/doors: «Вид системы», «Вид сверху» и
   // «Вид двери» (по каждой шотланке). Один fetch на смене (system, subsystem),
@@ -932,7 +1095,21 @@ export function ProposalPreview({
     const ofShotlan = doorSchemes.filter((r) => r.viewType === "door" && r.shotlanType === sh);
     const exact = ofShotlan.find((r) => r.heightCategory === hCat && r.widthCategory === wCat);
     const legacy = ofShotlan.find((r) => r.heightCategory == null && r.widthCategory == null);
-    return exact?.svgContent ?? legacy?.svgContent ?? null;
+    const result = exact?.svgContent ?? legacy?.svgContent ?? null;
+    if (!result && doorSchemes.length > 0) {
+      // Диагностика: помогает понять, почему «Вид двери» не подтянулся.
+      const doorRows = doorSchemes.filter((r) => r.viewType === "door");
+      const shotlans = [...new Set(doorRows.map((r) => r.shotlanType))];
+      console.warn("[ProposalPreview] doorSvg=null:", {
+        искалось: { shotlan: sh, heightCategory: hCat, widthCategory: wCat },
+        размер: `${initialData.fullWidth}×${initialData.height}`,
+        currentRanges,
+        всегоDoorЗаписей: doorRows.length,
+        доступныеШотланки: shotlans,
+        записиТойЖеШотланки: ofShotlan.map((r) => ({ h: r.heightCategory, w: r.widthCategory })),
+      });
+    }
+    return result;
   }, [doorSchemes, initialData.shotlan, initialData.fullWidth, initialData.height, currentRanges]);
 
   // Convert all display schemes (system + door + side + top) to PNG for PDF.
@@ -945,6 +1122,7 @@ export function ProposalPreview({
     // рендерить пустые placeholder'ы в PNG для PDF.
     if (doorSchemes.length === 0 && schemes.length === 0 && !doorSvg) {
       setSchemeSvgUrls([]);
+      setTopLabels([]);
       return;
     }
     let cancelled = false;
@@ -990,6 +1168,16 @@ export function ProposalPreview({
           ? computeDoorBox(renderedSys, renderedDoor, initialData.fullWidth, initialData.height, initialData.doorWidth)
           : null,
       );
+      // Подписи для overlay берём ПОСЛЕ template-replace (но до удаления
+      // <text>), чтобы у нас уже были реальные «X мм», а позиции — те, что
+      // нарисовал автор SVG. Применяем тот же template-replace, что и
+      // renderSvgWithDimensions, к ИСХОДНОМУ top-view SVG.
+      const topRawSvg = toConvert[2]?.svgContent ?? "";
+      const topWithVals = topRawSvg
+        .replace(/\{\{WIDTH\}\}/g, String(initialData.fullWidth))
+        .replace(/\{\{HEIGHT\}\}/g, String(initialData.height))
+        .replace(/\{\{DOOR_WIDTH\}\}/g, String(initialData.doorWidth));
+      setTopLabels(topWithVals ? extractTopLabels(topWithVals) : []);
     }
 
     Promise.all(
@@ -1287,18 +1475,52 @@ export function ProposalPreview({
                 const isEmpty = !scheme.svgContent || scheme.svgContent.trim() === "";
 
                 if (isEmpty) {
+                  // Диагностика прямо в плашке — без F12. Покажет, какую категорию
+                  // искали и что реально лежит в БД, чтобы сразу понять источник проблемы.
+                  const { height: dHCat, width: dWCat } = pickSizeCategoryR(
+                    initialData.fullWidth,
+                    initialData.height,
+                    currentRanges,
+                  );
+                  const wantedShotlan = initialData.shotlan || "Без шотланок";
+                  const allByView = doorSchemes.filter((r) => r.viewType === scheme.ratioType);
+                  const allByViewAndShotlan = scheme.ratioType === "door"
+                    ? allByView.filter((r) => r.shotlanType === wantedShotlan)
+                    : allByView;
+                  const availableShotlans = scheme.ratioType === "door"
+                    ? [...new Set(allByView.map((r) => r.shotlanType))]
+                    : [];
+                  const availableCategories = allByViewAndShotlan.map((r) => `${r.heightCategory ?? "·"}×${r.widthCategory ?? "·"}`);
+                  const hBands = currentRanges.heightBands;
+                  const wBands = currentRanges.widthBands;
+                  const resolvedSlug = Object.entries(systemsData).find(([, sys]) => sys.name === initialData.systemName)?.[0] ?? null;
+                  const knownSystemNamesInRanges = Object.keys(subsystemRanges);
+                  const knownSubsInThisSystem = subsystemRanges[initialData.systemName] ? Object.keys(subsystemRanges[initialData.systemName]) : [];
                   return (
                     <div key={idx} className={`flex flex-col items-center ${colSpanByIndex(idx)}`}>
                       <p className="text-[10px] font-semibold text-muted-foreground text-center mb-2">{displayLabel}</p>
                       <div
-                        className="w-full flex flex-col items-center justify-center rounded-lg border border-dashed border-amber-400/60 bg-amber-50/40 text-amber-700 text-xs text-center px-3"
+                        className="w-full flex flex-col items-center justify-center rounded-lg border border-dashed border-amber-400/60 bg-amber-50/40 text-amber-700 text-[10px] text-left px-3 py-2 gap-1 overflow-auto"
                         style={{ height: h }}
                       >
-                        <p className="font-semibold">SVG не загружен</p>
-                        <p className="opacity-80 mt-1">для размера {initialData.fullWidth}×{initialData.height} мм</p>
-                        <p className="opacity-60 mt-0.5 text-[10px]">
-                          {scheme.ratioType === "system" ? "/admin/variants" : scheme.ratioType === "top" ? "/admin/variants" : "/admin/doors"}
-                        </p>
+                        <p className="font-semibold text-center w-full">SVG не загружен</p>
+                        <p className="text-center w-full opacity-80">для размера {initialData.fullWidth}×{initialData.height} мм</p>
+                        <div className="mt-1 w-full text-[9px] font-mono leading-tight opacity-90 break-words">
+                          <div><b>systemName:</b> {JSON.stringify(initialData.systemName)}</div>
+                          <div><b>subsystem:</b> {JSON.stringify(initialData.subsystem)}</div>
+                          <div><b>resolvedSlug:</b> {JSON.stringify(resolvedSlug)}</div>
+                          <div><b>искали:</b> {scheme.ratioType}/{wantedShotlan}/{dHCat}×{dWCat}</div>
+                          <div><b>H bands:</b> [{hBands.join(", ")}]</div>
+                          <div><b>W bands:</b> [{wBands.join(", ")}]</div>
+                          <div><b>в БД ({scheme.ratioType}):</b> {allByView.length} зап.</div>
+                          {scheme.ratioType === "door" && (
+                            <div><b>шотланки в БД:</b> {availableShotlans.length ? availableShotlans.join(" | ") : "—"}</div>
+                          )}
+                          <div><b>категории той же шотланки:</b> {availableCategories.length ? availableCategories.join(" | ") : "—"}</div>
+                          <div><b>системы в subsystemRanges:</b> {knownSystemNamesInRanges.length ? knownSystemNamesInRanges.join(" | ") : "—"}</div>
+                          <div><b>подсистемы для этой системы:</b> {knownSubsInThisSystem.length ? knownSubsInThisSystem.join(" | ") : "—"}</div>
+                          <div className="opacity-60 mt-1">{scheme.ratioType === "system" ? "/admin/doors → Вид системы" : scheme.ratioType === "top" ? "/admin/doors → Вид сверху" : "/admin/doors → Вид двери"}</div>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1395,8 +1617,44 @@ export function ProposalPreview({
                           </div>
                         </div>
                       </div>
+                    ) : scheme.ratioType === "top" ? (
+                      // «Вид сверху»: контейнер ровно по аспекту SVG. Подписи
+                      // («3545 мм», «590 мм») рисуются как absolute-span'ы
+                      // снаружи SVG, тем же классом что у системы/двери —
+                      // одинаковый шрифт и размер.
+                      (() => {
+                        const vb = getSvgViewBox(rendered);
+                        const aspect = vb && vb.h > 0 ? vb.w / vb.h : 4;
+                        const imgH = h;
+                        const imgW = Math.round(imgH * aspect);
+                        return (
+                          <div className="w-full flex items-end justify-center" style={{ height: imgH }}>
+                            <div className="relative" style={{ width: imgW, height: imgH }}>
+                              <div
+                                dangerouslySetInnerHTML={{ __html: rendered }}
+                                style={{ width: imgW, height: imgH }}
+                                className="[&>svg]:w-full [&>svg]:h-full"
+                              />
+                              {topLabels.map((lbl, k) => (
+                                <span
+                                  key={k}
+                                  className="text-[10px] font-bold text-brand-700 whitespace-nowrap"
+                                  style={{
+                                    position: "absolute",
+                                    left: lbl.xNorm * imgW,
+                                    top: lbl.yNorm * imgH,
+                                    transform: "translate(-50%, -50%)",
+                                  }}
+                                >
+                                  {lbl.text}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()
                     ) : (
-                      // Фолбэк (вид сверху и пр.): SVG натуральной ширины, прижат к низу.
+                      // Фолбэк (на всякий случай): SVG натуральной ширины, прижат к низу.
                       <div
                         dangerouslySetInnerHTML={{ __html: rendered }}
                         style={{ height: h }}
@@ -1569,7 +1827,15 @@ export function ProposalPreview({
           totalPrice={data.totalPrice}
           customServices={data.customServices}
           notes={data.notes}
-          variant={data.variant}
+          variant={data.variant ? {
+            ...data.variant,
+            // iconUrl: используем заранее сконвертированные (SVG → PNG dataUrl),
+            // иначе react-pdf не отрендерит SVG-иконку Преимущества.
+            items: data.variant.items.map((it, i) => ({
+              ...it,
+              iconUrl: pdfItemIconUrls[i] ?? null,
+            })),
+          } : null}
           partnerCompanyName={data.partnerCompanyName ?? myCompany?.name ?? null}
           partnerLogoUrl={
             data.partnerCompanyName
@@ -1583,9 +1849,10 @@ export function ProposalPreview({
           onBeforeDownload={onBeforePdfDownload}
           schemeSvgs={schemeSvgUrls}
           schemeSizes={schemeSizes}
+          topLabels={topLabels}
           doorBoxRatio={doorBoxRatio ?? undefined}
           glassImageUrl={data.glassImageUrl}
-          railImageUrl={data.variant?.railImageUrl ? (data.variant.railImageUrl.startsWith("http") ? data.variant.railImageUrl : `${window.location.origin}${data.variant.railImageUrl}`) : undefined}
+          railImageUrl={pdfRailUrl ?? undefined}
         />
       </div>
     </div>

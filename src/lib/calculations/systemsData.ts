@@ -103,7 +103,7 @@ const cascadeParams: Record<string, SubsystemParams> = {
     moving_mechanism_ci:2, belt_connector_mechanism:6,
     belt_adapter:6, bottom_rollers:6, corner_rubber_joint:0,
   },
-  "3+0|3+0": {
+  "3+0 | 3+0": {
     num_doors:6, num_rails:3, num_side_caps:2,
     num_bottom_double_caps:2, num_bottom_single_caps:2,
     num_rail_to_rail_connectors:4, num_rail_to_cap_connectors:10,
@@ -113,7 +113,7 @@ const cascadeParams: Record<string, SubsystemParams> = {
     moving_mechanism_ci:4, belt_connector_mechanism:2,
     belt_adapter:0, bottom_rollers:2, corner_rubber_joint:1,
   },
-  "4+0|4+0": {
+  "4+0 | 4+0": {
     num_doors:8, num_rails:4, num_side_caps:2,
     num_bottom_double_caps:3, num_bottom_single_caps:2,
     num_rail_to_rail_connectors:6, num_rail_to_cap_connectors:12,
@@ -123,7 +123,7 @@ const cascadeParams: Record<string, SubsystemParams> = {
     moving_mechanism_ci:4, belt_connector_mechanism:4,
     belt_adapter:4, bottom_rollers:4, corner_rubber_joint:1,
   },
-  "5+0|5+0": {
+  "5+0 | 5+0": {
     num_doors:10, num_rails:5, num_side_caps:2,
     num_bottom_double_caps:4, num_bottom_single_caps:2,
     num_rail_to_rail_connectors:8, num_rail_to_cap_connectors:14,
@@ -133,7 +133,7 @@ const cascadeParams: Record<string, SubsystemParams> = {
     moving_mechanism_ci:4, belt_connector_mechanism:6,
     belt_adapter:6, bottom_rollers:6, corner_rubber_joint:1,
   },
-  "6+0|6+0": {
+  "6+0 | 6+0": {
     num_doors:12, num_rails:6, num_side_caps:2,
     num_bottom_double_caps:5, num_bottom_single_caps:2,
     num_rail_to_rail_connectors:10, num_rail_to_cap_connectors:16,
@@ -143,7 +143,7 @@ const cascadeParams: Record<string, SubsystemParams> = {
     moving_mechanism_ci:4, belt_connector_mechanism:8,
     belt_adapter:8, bottom_rollers:8, corner_rubber_joint:1,
   },
-  "7+0|7+0": {
+  "7+0 | 7+0": {
     num_doors:14, num_rails:7, num_side_caps:2,
     num_bottom_double_caps:6, num_bottom_single_caps:2,
     num_rail_to_rail_connectors:12, num_rail_to_cap_connectors:18,
@@ -153,7 +153,7 @@ const cascadeParams: Record<string, SubsystemParams> = {
     moving_mechanism_ci:4, belt_connector_mechanism:10,
     belt_adapter:10, bottom_rollers:10, corner_rubber_joint:1,
   },
-  "8+0|8+0": {
+  "8+0 | 8+0": {
     num_doors:16, num_rails:8, num_side_caps:2,
     num_bottom_double_caps:7, num_bottom_single_caps:2,
     num_rail_to_rail_connectors:14, num_rail_to_cap_connectors:20,
@@ -285,12 +285,12 @@ export const systemsData: Record<string, SystemDef> = {
       '6+0': { min: 3147, max: 6000, params: cascadeParams['6+0'] },
       '7+0': { min: 3745, max: 6000, params: cascadeParams['7+0'] },
       '8+0': { min: 4278, max: 6000, params: cascadeParams['8+0'] },
-      '3+0|3+0': { min: 3230, max: 9000, params: cascadeParams['3+0|3+0'] },
-      '4+0|4+0': { min: 4295, max: 12000, params: cascadeParams['4+0|4+0'] },
-      '5+0|5+0': { min: 5360, max: 12000, params: cascadeParams['5+0|5+0'] },
-      '6+0|6+0': { min: 6425, max: 12000, params: cascadeParams['6+0|6+0'] },
-      '7+0|7+0': { min: 7490, max: 12000, params: cascadeParams['7+0|7+0'] },
-      '8+0|8+0': { min: 8555, max: 12000, params: cascadeParams['8+0|8+0'] },
+      '3+0 | 3+0': { min: 3230, max: 9000, params: cascadeParams['3+0 | 3+0'] },
+      '4+0 | 4+0': { min: 4295, max: 12000, params: cascadeParams['4+0 | 4+0'] },
+      '5+0 | 5+0': { min: 5360, max: 12000, params: cascadeParams['5+0 | 5+0'] },
+      '6+0 | 6+0': { min: 6425, max: 12000, params: cascadeParams['6+0 | 6+0'] },
+      '7+0 | 7+0': { min: 7490, max: 12000, params: cascadeParams['7+0 | 7+0'] },
+      '8+0 | 8+0': { min: 8555, max: 12000, params: cascadeParams['8+0 | 8+0'] },
     },
   },
   unlinked: {

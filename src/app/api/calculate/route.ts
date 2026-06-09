@@ -110,10 +110,19 @@ export async function POST(req: Request) {
     rows.forEach((r) => { priceOverride[r.componentId] = r.price; });
   }
   // Системные цены: один и тот же компонент в разных системах может стоить
-  // разные деньги. Ключ — имя компонента из формулы.
+  // разные деньги. Ключ — имя компонента из формулы. Помимо цены конкретной
+  // системы подгружаем «Общие» — там лежат оверрайды для общих формул
+  // («Сборка/установка», «Доп расходы») — иначе пользовательские изменения
+  // на /admin/prices в группе «Общие» не подхватываются в КП.
   const systemPriceMap: Record<string, number> = {}; // componentName → price
-  const systemPrices = await prisma.systemPrice.findMany({ where: { systemName } });
-  systemPrices.forEach((p) => { systemPriceMap[p.componentName] = p.price; });
+  const systemPrices = await prisma.systemPrice.findMany({
+    where: { systemName: { in: [systemName, "Общие"] } },
+  });
+  // Сначала «Общие», затем конкретная система — оверрайд конкретной системы
+  // имеет приоритет над общим.
+  systemPrices
+    .sort((a, b) => (a.systemName === "Общие" ? -1 : 1))
+    .forEach((p) => { systemPriceMap[p.componentName] = p.price; });
   // Эффективная цена: CompanyPrice (партнёр) → SystemPrice (этой системы) →
   // Component.defaultPrice (глобальная база). formulaName — имя из формулы,
   // нужно для системного оверрайда.
@@ -294,10 +303,13 @@ export async function POST(req: Request) {
       price = glassType?.defaultPrice ?? 0;
       unit = "м²";
     } else if (cf.componentName === "Сборка/установка") {
-      price = componentPrices["installation"] ?? 80;
+      // SystemPrice-оверрайд по имени формулы → CompanyPrice → defaultPrice.
+      const inst = dbComponents.find((c) => c.key === "installation");
+      price = inst ? effectivePrice(inst, cf.componentName) : (componentPrices["installation"] ?? 80);
       unit = "м²";
     } else if (cf.componentName.includes("логистик") || cf.componentName.includes("Доп расходы")) {
-      price = componentPrices["logistics"] ?? 50;
+      const log = dbComponents.find((c) => c.key === "logistics");
+      price = log ? effectivePrice(log, cf.componentName) : (componentPrices["logistics"] ?? 50);
     }
 
     qty = Math.round(qty * 100) / 100;
