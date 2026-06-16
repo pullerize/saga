@@ -15,7 +15,7 @@ import { GuestContactGate } from "./GuestContactGate";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, Calculator, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { systemsData, getAvailableSubsystems } from "@/lib/calculations/systemsData";
+import { systemsData, getAvailableSubsystems, type SystemDef, type SubsystemParams } from "@/lib/calculations/systemsData";
 import { calculateTotal } from "@/lib/calculations/engine";
 import { calculateWithDB } from "@/lib/calculations/calculateWithDB";
 
@@ -32,7 +32,9 @@ interface CalculatorWizardProps {
 
 export function CalculatorWizard({ systemType }: CalculatorWizardProps) {
   const store = useCalculatorStore();
-  const system = systemsData[systemType];
+  // SystemDef из захардкоженого systemsData (если есть). Для новых систем,
+  // которых там нет, конструируем equivalence из БД ниже (dbSystem).
+  const hardcodedSystem = systemsData[systemType];
   const router = useRouter();
   const searchParams = useSearchParams();
   const isInitRef = useRef(false);
@@ -62,11 +64,30 @@ export function CalculatorWizard({ systemType }: CalculatorWizardProps) {
   // в т.ч. для гостя. systemsData (hardcoded) ими не владеет, поэтому
   // отдельным fetch'ем подгружаем по выбранной системе.
   const [dbSubsystemMedia, setDbSubsystemMedia] = useState<Record<string, { videoUrl: string | null; posterUrl: string | null }>>({});
+  // Полный fallback SystemDef из БД — если системы нет в захардкоженом
+  // systemsData (новые системы из админки). Строим ту же форму:
+  // { minWidth, maxWidth, maxFullWidth, extraField, subsystems }.
+  const [dbSystem, setDbSystem] = useState<SystemDef | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/systems")
       .then((r) => (r.ok ? r.json() : []))
-      .then((rows: Array<{ slug: string; subsystems: Array<{ name: string; videoUrl?: string | null; posterUrl?: string | null }> }>) => {
+      .then((rows: Array<{
+        slug: string;
+        name: string;
+        minWidth: number;
+        maxWidth: number;
+        maxFullWidth?: number | null;
+        hasExtraField?: boolean;
+        subsystems: Array<{
+          name: string;
+          minWidth: number;
+          maxWidth: number;
+          params?: unknown;
+          videoUrl?: string | null;
+          posterUrl?: string | null;
+        }>;
+      }>) => {
         if (cancelled) return;
         const sys = rows.find((s) => s.slug === systemType);
         const map: Record<string, { videoUrl: string | null; posterUrl: string | null }> = {};
@@ -74,10 +95,33 @@ export function CalculatorWizard({ systemType }: CalculatorWizardProps) {
           map[sub.name] = { videoUrl: sub.videoUrl ?? null, posterUrl: sub.posterUrl ?? null };
         });
         setDbSubsystemMedia(map);
+        // Конструируем SystemDef из БД, если такой системы нет в systemsData.
+        if (sys && !hardcodedSystem) {
+          setDbSystem({
+            name: sys.name,
+            minWidth: sys.minWidth,
+            maxWidth: sys.maxWidth,
+            maxFullWidth: sys.maxFullWidth ?? undefined,
+            extraField: !!sys.hasExtraField,
+            subsystems: Object.fromEntries(
+              sys.subsystems.map((sub) => [
+                sub.name,
+                {
+                  min: sub.minWidth,
+                  max: sub.maxWidth,
+                  params: (sub.params && typeof sub.params === "object" ? sub.params : {}) as SubsystemParams,
+                },
+              ]),
+            ),
+          });
+        }
       })
-      .catch(() => setDbSubsystemMedia({}));
+      .catch(() => { setDbSubsystemMedia({}); setDbSystem(null); });
     return () => { cancelled = true; };
-  }, [systemType]);
+  }, [systemType, hardcodedSystem]);
+
+  // Итоговый system — приоритет у hardcoded (если есть), иначе из БД.
+  const system = hardcodedSystem ?? dbSystem;
 
   // Sync URL query params with store selections
   useEffect(() => {

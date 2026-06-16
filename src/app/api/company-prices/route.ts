@@ -45,6 +45,7 @@ const NON_PRICED_FORMULA_NAMES = new Set(["Ширина двери", "Стекл
 // GET — компоненты из формул, сгруппированные по системе, с эффективной ценой
 // для компании текущего пользователя. Цена по умолчанию = как у админа
 // (Component.defaultPrice); переопределение компании показывается, если задано.
+// Дополнительно — псевдо-группа «Стекло» с CompanyGlassPrice-оверрайдами.
 export async function GET() {
   const { error, session } = await requireAuth();
   if (error) return error;
@@ -53,9 +54,12 @@ export async function GET() {
 
   // Переопределения компании.
   const overrides: Record<string, number> = {};
+  const glassOverrides: Record<string, number> = {};
   if (companyId) {
     const rows = await prisma.companyPrice.findMany({ where: { companyId } });
     rows.forEach((r) => { overrides[r.componentId] = r.price; });
+    const gRows = await prisma.companyGlassPrice.findMany({ where: { companyId } });
+    gRows.forEach((r) => { glassOverrides[r.glassTypeId] = r.price; });
   }
 
   // Все компоненты + индекс по нормализованному имени для сопоставления.
@@ -104,6 +108,29 @@ export async function GET() {
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
+  // Группа «Стекло» — отдельная вкладка со всеми активными GlassType.
+  // ВАЖНО: в `id` пишем `glass:<glassTypeId>` — UI смотрит на префикс «glass:»
+  // и шлёт PUT/DELETE с `glassTypeId` вместо `componentId`. unit = "м²".
+  const glassTypes = await prisma.glassType.findMany({
+    where: { isActive: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  if (glassTypes.length > 0) {
+    systems.push({
+      name: "Стекло",
+      components: glassTypes.map((g) => ({
+        id: `glass:${g.id}`,
+        key: `glass:${g.id}`,
+        name: g.name,
+        unit: "м²",
+        category: "glass",
+        defaultPrice: g.defaultPrice,
+        price: glassOverrides[g.id] ?? g.defaultPrice,
+        isOverride: glassOverrides[g.id] !== undefined,
+      })),
+    });
+  }
+
   return noStore({ companyId, systems });
 }
 
@@ -120,13 +147,36 @@ export async function PUT(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const componentId = String(body?.componentId ?? "");
+  const rawId = String(body?.componentId ?? body?.glassTypeId ?? "");
   const price = Number(body?.price);
-  if (!componentId) return noStore({ error: "componentId обязателен" }, { status: 400 });
+  if (!rawId) return noStore({ error: "componentId/glassTypeId обязателен" }, { status: 400 });
   if (!Number.isFinite(price) || price < 0 || price > 1_000_000) {
     return noStore({ error: "Некорректная цена" }, { status: 400 });
   }
 
+  // Префикс "glass:" — это GlassType.
+  if (rawId.startsWith("glass:")) {
+    const glassTypeId = rawId.slice("glass:".length);
+    const g = await prisma.glassType.findUnique({ where: { id: glassTypeId } });
+    if (!g) return noStore({ error: "Стекло не найдено" }, { status: 404 });
+    try {
+      if (price === g.defaultPrice) {
+        await prisma.companyGlassPrice.deleteMany({ where: { companyId, glassTypeId } });
+        return noStore({ ok: true, price, isOverride: false });
+      }
+      await prisma.companyGlassPrice.upsert({
+        where: { companyId_glassTypeId: { companyId, glassTypeId } },
+        create: { companyId, glassTypeId, price },
+        update: { price },
+      });
+      return noStore({ ok: true, price, isOverride: true });
+    } catch {
+      return noStore({ error: "Не удалось сохранить цену стекла" }, { status: 500 });
+    }
+  }
+
+  // Обычный Component.
+  const componentId = rawId;
   const component = await prisma.component.findUnique({ where: { id: componentId } });
   if (!component) return noStore({ error: "Компонент не найден" }, { status: 404 });
 
@@ -156,9 +206,14 @@ export async function DELETE(req: Request) {
   if (!companyId) return noStore({ error: "У пользователя нет компании" }, { status: 400 });
 
   const { searchParams } = new URL(req.url);
-  const componentId = searchParams.get("componentId");
-  if (!componentId) return noStore({ error: "componentId обязателен" }, { status: 400 });
+  const rawId = searchParams.get("componentId") ?? searchParams.get("glassTypeId");
+  if (!rawId) return noStore({ error: "componentId/glassTypeId обязателен" }, { status: 400 });
 
-  await prisma.companyPrice.deleteMany({ where: { companyId, componentId } });
+  if (rawId.startsWith("glass:")) {
+    const glassTypeId = rawId.slice("glass:".length);
+    await prisma.companyGlassPrice.deleteMany({ where: { companyId, glassTypeId } });
+    return noStore({ ok: true });
+  }
+  await prisma.companyPrice.deleteMany({ where: { companyId, componentId: rawId } });
   return noStore({ ok: true });
 }

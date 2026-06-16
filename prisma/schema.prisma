@@ -46,6 +46,7 @@ model Company {
   showrooms Json?
   users     User[]
   prices    CompanyPrice[]
+  glassPrices CompanyGlassPrice[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -191,8 +192,28 @@ model GlassType {
   mobileImageUrl   String?
   restrictedShotlans String  @default("[]") // JSON array as string
 
+  companyPrices CompanyGlassPrice[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Цена типа стекла для конкретной компании-партнёра. Если для компании задана
+// своя цена стекла — в расчётах её карточек используется она, иначе
+// GlassType.defaultPrice.
+model CompanyGlassPrice {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  glassTypeId String
+  glassType   GlassType @relation(fields: [glassTypeId], references: [id], onDelete: Cascade)
+  price       Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, glassTypeId])
+  @@index([companyId])
 }
 
 // ── Shotlan Options ──

@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireAuth, requireRole } from "@/lib/auth-helpers";
+import { requireRole } from "@/lib/auth-helpers";
 
+// GET — публично: шотланки нужны калькулятору гостей.
 export async function GET() {
-  const { error } = await requireAuth();
-  if (error) return error;
   const items = await prisma.shotlanOption.findMany({ orderBy: { sortOrder: "asc" } });
   return NextResponse.json(items);
 }

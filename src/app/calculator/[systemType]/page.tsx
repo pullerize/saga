@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ArrowLeft, Home } from "lucide-react";
 import { CalculatorWizard } from "@/components/calculator/CalculatorWizard";
 import { Logo } from "@/components/shared/Logo";
-import { systemsData } from "@/lib/calculations/systemsData";
 import { prisma } from "@/lib/db";
 
 interface Props {
@@ -12,21 +11,22 @@ interface Props {
 }
 
 export async function generateStaticParams() {
-  const systems = await prisma.doorSystem.findMany({ select: { slug: true } });
-  return systems
-    .filter((s) => systemsData[s.slug])
-    .map((s) => ({ systemType: s.slug }));
+  // Генерируем страницы для всех активных систем из БД (без фильтра по
+  // захардкоженной systemsData — иначе новые системы получали бы 404).
+  const systems = await prisma.doorSystem.findMany({
+    where: { isActive: true },
+    select: { slug: true },
+  });
+  return systems.map((s) => ({ systemType: s.slug }));
 }
 
 export default async function CalculatorPage({ params }: Props) {
   const { systemType } = await params;
 
-  if (!systemsData[systemType]) {
-    notFound();
-  }
-
+  // Система валидна, если есть в БД (активная). systemsData — это лишь
+  // легаси-набор расчётных параметров; новые системы строятся целиком из БД.
   const exists = await prisma.doorSystem.findUnique({
-    where: { slug: systemType },
+    where: { slug: systemType, isActive: true },
     select: { id: true },
   });
   if (!exists) {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { evaluateFormula } from "@/lib/calculations/formulaParser";
-import { requireAuth } from "@/lib/auth-helpers";
+import { getSession } from "@/lib/auth-helpers";
 import { rateLimit } from "@/lib/rate-limit";
 
 // Map slugs to system names in SystemFormula table
@@ -20,8 +20,10 @@ const SLUG_TO_NAME: Record<string, string> = {
 export async function POST(req: Request) {
   const limited = rateLimit("calculate", req, { limit: 60, windowMs: 60_000 });
   if (limited) return limited;
-  const { error, session } = await requireAuth();
-  if (error) return error;
+  // Расчёт доступен и гостям (для калькулятора на публичных страницах).
+  // Если сессия есть — учитываем CompanyPrice партнёра. Если нет — обычный
+  // SystemPrice + defaultPrice.
+  const session = await getSession();
   const body = await req.json().catch(() => ({}));
   const { systemSlug, subsystemName, fullWidth, openWidth, height, glass, shotlan } = body;
   // Базовая валидация входов: всё, что должно быть числом — должно быть числом и в разумных пределах.
@@ -116,12 +118,12 @@ export async function POST(req: Request) {
   // на /admin/prices в группе «Общие» не подхватываются в КП.
   const systemPriceMap: Record<string, number> = {}; // componentName → price
   const systemPrices = await prisma.systemPrice.findMany({
-    where: { systemName: { in: [systemName, "Общие"] } },
+    where: { systemName: { in: [systemName, "Общие", "Шотланки"] } },
   });
-  // Сначала «Общие», затем конкретная система — оверрайд конкретной системы
-  // имеет приоритет над общим.
+  // Приоритет: «Общие» / «Шотланки» (глобальные) → конкретная система.
+  const sysPriority = (n: string) => (n === systemName ? 1 : 0);
   systemPrices
-    .sort((a, b) => (a.systemName === "Общие" ? -1 : 1))
+    .sort((a, b) => sysPriority(a.systemName) - sysPriority(b.systemName))
     .forEach((p) => { systemPriceMap[p.componentName] = p.price; });
   // Эффективная цена: CompanyPrice (партнёр) → SystemPrice (этой системы) →
   // Component.defaultPrice (глобальная база). formulaName — имя из формулы,
@@ -300,7 +302,15 @@ export async function POST(req: Request) {
     if (cf.componentName === "Стекло (м²)") {
       let glassType = await prisma.glassType.findUnique({ where: { name: glass } });
       if (!glassType) glassType = await prisma.glassType.findFirst({ where: { name: { contains: glass.substring(0, 5) } } });
-      price = glassType?.defaultPrice ?? 0;
+      // Если у компании-партнёра задана своя цена этого стекла — применяем её.
+      let glassPrice = glassType?.defaultPrice ?? 0;
+      if (glassType && companyId) {
+        const gOverride = await prisma.companyGlassPrice.findUnique({
+          where: { companyId_glassTypeId: { companyId, glassTypeId: glassType.id } },
+        });
+        if (gOverride) glassPrice = gOverride.price;
+      }
+      price = glassPrice;
       unit = "м²";
     } else if (cf.componentName === "Сборка/установка") {
       // SystemPrice-оверрайд по имени формулы → CompanyPrice → defaultPrice.
@@ -370,10 +380,11 @@ export async function POST(req: Request) {
           const label = paramLabels[key]?.trim();
           if (label) compMatch = findComponent(label) ?? undefined;
         }
-        const price = (compMatch ? effectivePrice(compMatch) : undefined) ?? (shotlanComps[key] || 0);
-        const sum = Math.round(qty * price * 100) / 100;
-        // Use paramLabels for display name (more accurate than fuzzy-matched component name)
+        // Use paramLabels for display name (более точное, чем fuzzy-матч).
         const displayName = paramLabels[key]?.trim() || compMatch?.name || componentNames[key] || key;
+        // SystemPrice-оверрайд по имени компонента (группа «Шотланки» в /admin/prices).
+        const price = (compMatch ? effectivePrice(compMatch, displayName) : undefined) ?? (shotlanComps[key] || 0);
+        const sum = Math.round(qty * price * 100) / 100;
         components.push({
           key,
           name: displayName,

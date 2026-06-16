@@ -281,8 +281,11 @@ function SystemForm({
                   v.play().catch(() => { /* autoplay заблокирован */ });
                 }}
                 onError={(e) => {
+                  // 404/format error — самая частая причина это отсутствие
+                  // загруженного файла локально (он на проде). Не шумим в console.error,
+                  // чтобы не отвлекать от реальных ошибок.
                   const v = e.currentTarget;
-                  console.error("[admin/systems] video error:", v.error?.code, v.error?.message, videoUrl);
+                  console.debug("[admin/systems] video unavailable:", v.error?.code, v.error?.message, videoUrl);
                 }}
               />
             ) : (
@@ -823,8 +826,11 @@ function SubsystemForm({
                   v.play().catch(() => { /* autoplay заблокирован */ });
                 }}
                 onError={(e) => {
+                  // 404/format error — самая частая причина это отсутствие
+                  // загруженного файла локально (он на проде). Не шумим в console.error,
+                  // чтобы не отвлекать от реальных ошибок.
                   const v = e.currentTarget;
-                  console.error("[admin/systems] video error:", v.error?.code, v.error?.message, videoUrl);
+                  console.debug("[admin/systems] video unavailable:", v.error?.code, v.error?.message, videoUrl);
                 }}
               />
             ) : (

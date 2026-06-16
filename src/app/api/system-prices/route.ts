@@ -45,6 +45,33 @@ export async function GET() {
     select: { systemName: true, componentName: true },
   });
 
+  // Шотланочные компоненты живут в ShotlanOption.formulas (JSON-карта
+  // ключ → формула) — их в SystemFormula нет. Ключ в `formulas` совпадает
+  // с ParamDefinition.key, человеческое имя берём из ParamDefinition.label —
+  // оно матчится с Component.name через findComp.
+  const paramDefs = await prisma.paramDefinition.findMany({
+    select: { key: true, label: true },
+  });
+  const paramLabels: Record<string, string> = {};
+  paramDefs.forEach((d) => { paramLabels[d.key] = d.label.trim(); });
+
+  const shotlans = await prisma.shotlanOption.findMany({
+    where: { isActive: true },
+    select: { formulas: true },
+  });
+  const shotlanCompNames = new Set<string>();
+  for (const s of shotlans) {
+    const f = (s.formulas ?? {}) as Record<string, unknown>;
+    for (const key of Object.keys(f)) {
+      // 1) ParamDefinition.label (основной источник), 2) Component.name по key
+      // как фолбэк, 3) сам ключ — если ничего не нашли.
+      const label = paramLabels[key]
+        ?? components.find((c) => c.key === key)?.name
+        ?? key;
+      shotlanCompNames.add(label);
+    }
+  }
+
   const systemPrices = await prisma.systemPrice.findMany();
   // (systemName, componentName) → price
   const overrides = new Map<string, number>();
@@ -81,6 +108,30 @@ export async function GET() {
       price: override ?? comp.defaultPrice,
       isOverride: override !== undefined,
     });
+  }
+
+  // «Шотланки» — отдельная вкладка в /admin/prices, но цена тут глобальная
+  // (одинаковая для всех систем): расчёт берёт SystemPrice c systemName
+  // «Шотланки» как часть общего пула (см. /api/calculate).
+  if (shotlanCompNames.size > 0) {
+    if (!bySystem.has("Шотланки")) bySystem.set("Шотланки", new Map());
+    const m = bySystem.get("Шотланки")!;
+    for (const compName of shotlanCompNames) {
+      if (m.has(compName)) continue;
+      const comp = findComp(compName);
+      if (!comp) continue;
+      const override = overrides.get(`Шотланки::${compName}`);
+      m.set(compName, {
+        componentId: comp.id,
+        componentName: compName,
+        name: comp.name,
+        unit: comp.unit,
+        category: comp.category,
+        defaultPrice: comp.defaultPrice,
+        price: override ?? comp.defaultPrice,
+        isOverride: override !== undefined,
+      });
+    }
   }
 
   const systems = Array.from(bySystem.entries())
