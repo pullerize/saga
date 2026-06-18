@@ -39,22 +39,25 @@ async function svgToPngViaServer(svgContent: string): Promise<{ dataUrl: string;
 }
 
 /**
- * Преобразует URL (картинка или SVG) в формат, который сможет отрендерить
- * react-pdf. SVG → PNG data-URL через /api/svg-to-png; растровые форматы
- * (PNG/JPG/WebP/GIF) — возвращаются без изменений. Используется для иконок
- * Преимуществ и фото «Рельсы» в PDF, так как @react-pdf/renderer не умеет
- * рендерить SVG через <Image>.
+ * Преобразует URL картинки в формат, который сможет отрендерить react-pdf.
+ *   • PNG/JPEG — возвращаются как есть (react-pdf их понимает).
+ *   • SVG, WebP, GIF, BMP, TIFF — конвертируются в PNG через /api/image-to-png
+ *     (sharp на сервере). React-pdf не умеет .svg/.webp через <Image>, поэтому
+ *     без конвертации иконки «Преимуществ» и фото рельсы пропадают из PDF.
  */
 async function imageUrlForPdf(url: string | null | undefined): Promise<string | null> {
   if (!url) return null;
-  const isSvg = /\.svg(\?|$)/i.test(url);
-  if (!isSvg) return url;
+  const isPngJpg = /\.(png|jpe?g)(\?|$)/i.test(url);
+  if (isPngJpg) return url;
   try {
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const svg = await r.text();
-    const { dataUrl } = await svgToPngViaServer(svg);
-    return dataUrl || null;
+    const res = await fetch("/api/image-to-png", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.dataUrl || null;
   } catch {
     return null;
   }
@@ -178,101 +181,114 @@ function decodeXmlEntities(s: string): string {
     });
 }
 
+function applyTransformToPoint(transform: string, x: number, y: number): { x: number; y: number } {
+  let nx = x, ny = y;
+  // translate(tx, ty) | translate(tx,ty) | translate(tx) — ty=0.
+  const tr = transform.match(/translate\(\s*([-\d.]+)(?:\s*[,\s]\s*([-\d.]+))?\s*\)/i);
+  if (tr) {
+    nx += parseFloat(tr[1]);
+    if (tr[2]) ny += parseFloat(tr[2]);
+  }
+  // matrix(a,b,c,d,e,f) — без поворота поддерживаем строго.
+  const mat = transform.match(/matrix\(\s*([-\d.,\s]+)\s*\)/i);
+  if (mat) {
+    const nums = mat[1].split(/[\s,]+/).filter(Boolean).map(Number);
+    if (nums.length >= 6 && nums.every(Number.isFinite)) {
+      const [a, , , d, e, f] = nums;
+      nx = a * nx + e;
+      ny = d * ny + f;
+    }
+  }
+  return { x: nx, y: ny };
+}
+
 function extractTopLabels(svgContent: string): Array<{ xNorm: number; yNorm: number; text: string }> {
   const vb = getSvgViewBox(svgContent);
-  if (!vb || vb.w <= 0 || vb.h <= 0) return [];
-
-  // Собираем длинные горизонтальные <rect> — это полосы дверей или размерные
-  // линии. По ним будем горизонтально центрировать подписи.
-  type HRect = { x: number; xEnd: number; y: number };
-  const horizRects: HRect[] = [];
-  const rectRe = /<rect\b([^>]*)\/?>/gi;
-  let rm: RegExpExecArray | null;
-  while ((rm = rectRe.exec(svgContent)) !== null) {
-    const a = rm[1] ?? "";
-    const x = parseFloat(a.match(/\bx\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
-    const y = parseFloat(a.match(/\by\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
-    const w = parseFloat(a.match(/\bwidth\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
-    const h = parseFloat(a.match(/\bheight\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) continue;
-    if (w < vb.w * 0.05) continue;          // отсекаем мелкое
-    if (h <= 0 || w / h < 5) continue;      // нужны вытянутые горизонтальные
-    if (y < vb.y || y > vb.y + vb.h) continue;
-    horizRects.push({ x, xEnd: x + w, y });
+  // Парсим SVG через DOMParser — так корректно учитываем СУММУ transform'ов
+  // от <text> и всех родительских <g> (Figma-экспорт оборачивает группы в
+  // <g transform="translate(...)"> для смещений, наш ручной разнос
+  // bot_object/middle_object тоже так делает).
+  type Pos = { x: number; y: number; text: string; value: number };
+  const positions: Pos[] = [];
+  if (typeof window === "undefined" || !svgContent) return [];
+  let doc: Document;
+  try {
+    const parser = new DOMParser();
+    doc = parser.parseFromString(svgContent, "image/svg+xml");
+  } catch {
+    return [];
   }
+  const svgRoot = doc.documentElement;
+  if (!svgRoot || svgRoot.nodeName.toLowerCase() !== "svg") return [];
 
-  // Группируем по близости Y. Внутри группы X-границы объединяем.
-  type Cluster = { xMin: number; xMax: number; y: number };
-  const clusters: Cluster[] = [];
-  const YTOL = vb.h * 0.08; // ±8% высоты viewBox считаем «той же строкой»
-  horizRects.sort((a, b) => a.y - b.y);
-  for (const r of horizRects) {
-    const c = clusters.find((cl) => Math.abs(cl.y - r.y) <= YTOL);
-    if (c) {
-      c.xMin = Math.min(c.xMin, r.x);
-      c.xMax = Math.max(c.xMax, r.xEnd);
-      c.y = (c.y + r.y) / 2;
-    } else {
-      clusters.push({ xMin: r.x, xMax: r.xEnd, y: r.y });
-    }
-  }
+  const texts = Array.from(doc.getElementsByTagName("text"));
+  for (const text of texts) {
+    const tspan = text.querySelector("tspan");
+    const target = tspan ?? text;
+    const xAttr = target.getAttribute("x");
+    const yAttr = target.getAttribute("y");
+    let x = parseFloat(xAttr ?? "");
+    let y = parseFloat(yAttr ?? "");
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
 
-  const result: Array<{ xNorm: number; yNorm: number; text: string }> = [];
-  const textRe = /<text\b([^>]*)>([\s\S]*?)<\/text>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = textRe.exec(svgContent)) !== null) {
-    const attrs = m[1] ?? "";
-    const body = m[2] ?? "";
-
-    // transform=matrix(a,b,c,d,e,f) — поддерживаем без поворота (b=c=0).
-    let a = 1, d = 1, e = 0, f = 0;
-    const tMatch = attrs.match(/\btransform\s*=\s*["']([^"']+)["']/);
-    if (tMatch) {
-      const mat = tMatch[1].match(/matrix\s*\(\s*([-\d.,\s]+)\s*\)/i);
-      if (mat) {
-        const nums = mat[1].split(/[\s,]+/).filter(Boolean).map(Number);
-        if (nums.length >= 6 && nums.every(Number.isFinite)) {
-          a = nums[0]; d = nums[3]; e = nums[4]; f = nums[5];
-        }
+    // Поднимаемся вверх по дереву и аккумулируем все transform'ы.
+    let node: Element | null = text;
+    while (node && node !== svgRoot) {
+      const tr = node.getAttribute("transform");
+      if (tr) {
+        const next = applyTransformToPoint(tr, x, y);
+        x = next.x;
+        y = next.y;
       }
+      node = node.parentElement;
     }
 
-    // Достаём текст и позицию (из <tspan> либо из самого <text>).
-    const tspanMatch = body.match(/<tspan\b([^>]*)>([\s\S]*?)<\/tspan>/i);
-    const innerAttrs = tspanMatch ? tspanMatch[1] : attrs;
-    const rawInner = (tspanMatch ? tspanMatch[2] : body).replace(/<[^>]+>/g, "").trim();
-    const innerText = decodeXmlEntities(rawInner).replace(/\s+/g, " ").trim();
-    if (!innerText) continue;
-    const xRaw = parseFloat(innerAttrs.match(/\bx\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
-    const yRaw = parseFloat(innerAttrs.match(/\by\s*=\s*["']([-\d.]+)["']/)?.[1] ?? "");
-    if (!Number.isFinite(xRaw) || !Number.isFinite(yRaw)) continue;
-
-    const visX = a * xRaw + e;
-    const visY = d * yRaw + f;
-
-    // Ищем кластер, ближайший по Y. Если есть — берём его центр X (так подпись
-    // окажется ровно посередине размерной линии/группы полос).
-    let cx = visX;
-    let cy = visY;
-    if (clusters.length > 0) {
-      const best = clusters.reduce(
-        (acc, c) => (Math.abs(c.y - visY) < acc.dy ? { c, dy: Math.abs(c.y - visY) } : acc),
-        { c: clusters[0], dy: Math.abs(clusters[0].y - visY) },
-      );
-      if (best.dy <= vb.h * 0.35) {
-        cx = (best.c.xMin + best.c.xMax) / 2;
-        // Y оставляем по подписи (она над линией, как нарисовал автор).
-        cy = visY;
-      }
-    }
-
-    result.push({
-      xNorm: (cx - vb.x) / vb.w,
-      yNorm: (cy - vb.y) / vb.h,
-      text: innerText,
-    });
+    const rawInner = decodeXmlEntities(text.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (!rawInner) continue;
+    const numMatch = rawInner.match(/(\d+(?:[.,]\d+)?)/);
+    const value = numMatch ? parseFloat(numMatch[1].replace(",", ".")) : 0;
+    positions.push({ x, y, text: rawInner, value });
   }
-  return result;
+  if (positions.length === 0) return [];
+
+  // Если viewBox есть И у всех подписей координаты валидны и попадают в viewBox —
+  // используем РЕАЛЬНЫЕ позиции (как в figma-SVG: WIDTH_text сверху по центру,
+  // DOOR_WIDTH_text слева чуть выше середины и т.п.). Иначе — фолбэк на
+  // фиксированные позиции (старые SVG с координатами за viewBox).
+  const insideVB =
+    vb &&
+    positions.every(
+      (p) =>
+        Number.isFinite(p.x) &&
+        Number.isFinite(p.y) &&
+        p.x >= vb.x - vb.w * 0.05 &&
+        p.x <= vb.x + vb.w * 1.05 &&
+        p.y >= vb.y - vb.h * 0.05 &&
+        p.y <= vb.y + vb.h * 1.05,
+    );
+
+  if (insideVB && vb) {
+    return positions.map((p) => ({
+      xNorm: (p.x - vb.x) / vb.w,
+      yNorm: (p.y - vb.y) / vb.h,
+      text: p.text,
+    }));
+  }
+
+  // Фолбэк: фикс-позиции по убыванию числа в тексте.
+  const sortedLabels = [...positions].sort((a, b) => b.value - a.value);
+  const fb: number[] = (() => {
+    const n = sortedLabels.length;
+    if (n === 1) return [0.08];
+    if (n === 2) return [0.06, 0.78];
+    if (n === 3) return [0.06, 0.46, 0.92];
+    return Array.from({ length: n }, (_, i) => 0.06 + (0.86 * i) / (n - 1));
+  })();
+  return sortedLabels.map((lbl, i) => ({
+    xNorm: 0.5,
+    yNorm: fb[i] ?? 0.5,
+    text: lbl.text,
+  }));
 }
 
 function computeDoorBox(
@@ -338,6 +354,43 @@ function renderSvgWithDimensions(
       .replace(/\sfont-weight\s*=\s*["'][^"']*["']/gi, "");
     return `<text${cleaned} font-family="Arial, Helvetica, sans-serif" font-weight="700">`;
   });
+
+  // Авто-разнос группового SVG для «Вид сверху»: если файл содержит
+  // <g id="middle_object"> и <g id="bot_object"> (наша figma-конвенция),
+  // движок сам сдвигает их вниз и расширяет viewBox — пользователю достаточно
+  // просто экспортнуть из Figma как есть, без ручной правки координат.
+  if (schemeIndex === 2 && /id="middle_object"/.test(svg) && /id="bot_object"/.test(svg)) {
+    const MIDDLE_DELTA = 400;
+    const BOT_DELTA = 800;
+    // Добавляем translate, только если на группе ещё нет transform.
+    svg = svg.replace(/<g(\s+[^>]*?)id="middle_object"([^>]*)>/i, (m, before, after) => {
+      if (/transform=/.test(before) || /transform=/.test(after)) return m;
+      return `<g${before}id="middle_object" transform="translate(0, ${MIDDLE_DELTA})"${after}>`;
+    });
+    svg = svg.replace(/<g(\s+[^>]*?)id="bot_object"([^>]*)>/i, (m, before, after) => {
+      if (/transform=/.test(before) || /transform=/.test(after)) return m;
+      return `<g${before}id="bot_object" transform="translate(0, ${BOT_DELTA})"${after}>`;
+    });
+    // Расширяем viewBox по высоте на BOT_DELTA — чтобы сдвинутый bot_object
+    // не обрезался.
+    svg = svg.replace(/viewBox\s*=\s*["']([^"']+)["']/i, (m, vb) => {
+      const parts = vb.split(/[\s,]+/).filter(Boolean).map(Number);
+      if (parts.length !== 4 || !parts.every(Number.isFinite)) return m;
+      return `viewBox="${parts[0]} ${parts[1]} ${parts[2]} ${parts[3] + BOT_DELTA}"`;
+    });
+    // Атрибуты width/height на <svg> и clipPath rect — тоже подкрутим.
+    svg = svg.replace(/(<svg\b[^>]*\s)height\s*=\s*["']([\d.]+)["']/i, (m, pre, h) => {
+      return `${pre}height="${parseFloat(h) + BOT_DELTA}"`;
+    });
+    svg = svg.replace(
+      /(<rect\b[^>]*\s)height\s*=\s*["']([\d.]+)["']([^>]*\/?>)/i,
+      (m, pre, h, post) => {
+        // Расширяем только rect внутри clipPath (он один и совпадает с viewBox).
+        const newH = parseFloat(h) + BOT_DELTA;
+        return `${pre}height="${newH}"${post}`;
+      },
+    );
+  }
 
 
   // ──────────────────────────────────────────────────────────────────────
@@ -995,6 +1048,11 @@ export function ProposalPreview({
   // оригиналом.
   const [pdfRailUrl, setPdfRailUrl] = useState<string | null>(null);
   const [pdfItemIconUrls, setPdfItemIconUrls] = useState<Array<string | null>>([]);
+  // Готовые QR-коды (PNG data-URL) для блока «Гарантийные условия» и «Договор
+  // оферты» в PDF. Исходные ссылки берутся из SiteContent: pdf.qr_warranty_url
+  // и pdf.qr_offer_url (редактируются в CMS-режиме).
+  const [qrWarrantyDataUrl, setQrWarrantyDataUrl] = useState<string | null>(null);
+  const [qrOfferDataUrl, setQrOfferDataUrl] = useState<string | null>(null);
 
   // Системы, реально настроенные в БД. Фильтруем хардкоженый systemsData по этому списку.
   const [activeSystemSlugs, setActiveSystemSlugs] = useState<Set<string> | null>(null);
@@ -1056,6 +1114,37 @@ export function ProposalPreview({
 
     return () => { cancelled = true; };
   }, [initialData.variant?.railImageUrl, initialData.variant?.items]);
+
+  // Генерация QR-кодов для блока «Гарантия + оферта» в PDF.
+  //   • Ссылки берутся из SiteContent (ключи pdf.qr_warranty_url, pdf.qr_offer_url).
+  //   • QRCode.toDataURL(url) даёт PNG data-URL, который react-pdf рендерит через <Image>.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { default: QRCode } = await import("qrcode");
+        const [warrantyRes, offerRes] = await Promise.all([
+          fetch("/api/site-content?key=pdf.qr_warranty_url").then((r) => (r.ok ? r.json() : null)),
+          fetch("/api/site-content?key=pdf.qr_offer_url").then((r) => (r.ok ? r.json() : null)),
+        ]);
+        const warrantyUrl = warrantyRes?.value?.trim() || "";
+        const offerUrl = offerRes?.value?.trim() || "";
+        const [warrantyDataUrl, offerDataUrl] = await Promise.all([
+          warrantyUrl ? QRCode.toDataURL(warrantyUrl, { margin: 1, width: 256 }).catch(() => "") : "",
+          offerUrl ? QRCode.toDataURL(offerUrl, { margin: 1, width: 256 }).catch(() => "") : "",
+        ]);
+        if (cancelled) return;
+        setQrWarrantyDataUrl(warrantyDataUrl || null);
+        setQrOfferDataUrl(offerDataUrl || null);
+      } catch {
+        if (!cancelled) {
+          setQrWarrantyDataUrl(null);
+          setQrOfferDataUrl(null);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Все SVG-схемы подсистемы из /admin/doors: «Вид системы», «Вид сверху» и
   // «Вид двери» (по каждой шотланке). Один fetch на смене (system, subsystem),
@@ -1532,7 +1621,15 @@ export function ProposalPreview({
                     className={`cursor-pointer hover:opacity-80 transition-opacity flex flex-col items-center ${colSpanByIndex(idx)}`}
                     onClick={() => setSchemeModal(rendered)}
                   >
-                    <p className="text-[10px] font-semibold text-muted-foreground text-center mb-2">{displayLabel}</p>
+                    {/* Для «Вид сверху» — увеличенный отступ между подписью
+                        и картинкой (mb-8), у остальных — стандартный mb-2. */}
+                    <p
+                      className={`text-[10px] font-semibold text-muted-foreground text-center ${
+                        scheme.ratioType === "top" ? "mb-8" : "mb-2"
+                      }`}
+                    >
+                      {displayLabel}
+                    </p>
                     {isDoorSlot ? (
                       // «Вид двери» прижат к НИЗУ ячейки точно так же, как SVG
                       // системы → их нижние кромки совпадают (горизонтальное
@@ -1578,9 +1675,11 @@ export function ProposalPreview({
                       </div>
                     ) : isSystemSlot ? (
                       // «Вид системы»: SVG натуральной ширины (sysImgW × h),
-                      // прижат вправо, числа размеров — ABSOLUTE СНАРУЖИ (тот же
-                      // 10px шрифт, что и у «вида двери» → одинаковые подписи).
-                      <div className="w-full flex items-end justify-end" style={{ height: h }}>
+                      // центрирован в колонке (раньше был прижат вправо — из-за
+                      // этого схемы кучковались справа, не как в PDF). Числа
+                      // размеров — ABSOLUTE СНАРУЖИ (тот же 10px шрифт, что и
+                      // у «вида двери»).
+                      <div className="w-full flex items-end justify-center" style={{ height: h }}>
                         <div className="relative" style={{ width: sysImgW, height: h }}>
                           <div
                             dangerouslySetInnerHTML={{ __html: rendered }}
@@ -1618,20 +1717,19 @@ export function ProposalPreview({
                         </div>
                       </div>
                     ) : scheme.ratioType === "top" ? (
-                      // «Вид сверху»: контейнер ровно по аспекту SVG. Подписи
-                      // («3545 мм», «590 мм») рисуются как absolute-span'ы
-                      // снаружи SVG, тем же классом что у системы/двери —
-                      // одинаковый шрифт и размер.
+                      // «Вид сверху»: контейнер по аспекту SVG. Подписи рисуются
+                      // overlay-span'ами тем же классом что у системы/двери.
                       (() => {
                         const vb = getSvgViewBox(rendered);
                         const aspect = vb && vb.h > 0 ? vb.w / vb.h : 4;
                         const imgH = h;
                         const imgW = Math.round(imgH * aspect);
+                        const stretchedSvg = rendered;
                         return (
                           <div className="w-full flex items-end justify-center" style={{ height: imgH }}>
                             <div className="relative" style={{ width: imgW, height: imgH }}>
                               <div
-                                dangerouslySetInnerHTML={{ __html: rendered }}
+                                dangerouslySetInnerHTML={{ __html: stretchedSvg }}
                                 style={{ width: imgW, height: imgH }}
                                 className="[&>svg]:w-full [&>svg]:h-full"
                               />
@@ -1853,6 +1951,8 @@ export function ProposalPreview({
           doorBoxRatio={doorBoxRatio ?? undefined}
           glassImageUrl={data.glassImageUrl}
           railImageUrl={pdfRailUrl ?? undefined}
+          qrWarrantyDataUrl={qrWarrantyDataUrl ?? undefined}
+          qrOfferDataUrl={qrOfferDataUrl ?? undefined}
         />
       </div>
     </div>

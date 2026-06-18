@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn, getSession } from "next-auth/react";
+import { signIn, getSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -50,8 +50,30 @@ export default function LoginPage() {
     router.refresh();
   }
 
-  function handleGuest() {
-    router.push("/calculator");
+  // «Войти как гость» — полностью очищаем текущую NextAuth-сессию (роль,
+  // companyId и пр.), сбрасываем CMS-флаг и любые лид-кэши гостя, и только
+  // потом ведём в каталог. Без signOut пользователь, который раньше входил
+  // как ADMIN/PARTNER, оставался залогиненным, и его роль продолжала влиять
+  // на калькулятор (не показывал гостевую форму, считал по партнёрским ценам).
+  async function handleGuest() {
+    setLoading(true);
+    try {
+      // CMS-флаг и гостевые кэши (если есть) — чистим всегда.
+      try {
+        localStorage.removeItem("cms_edit_enabled");
+        sessionStorage.removeItem("guest_lead_contact");
+        Object.keys(sessionStorage).forEach((k) => {
+          if (k.startsWith("guest_lead_unlocked_")) sessionStorage.removeItem(k);
+        });
+      } catch { /* SSR / приватный режим */ }
+      // Полный signOut (если сессия была) — без редиректа, чтобы мы сами
+      // отправили в /calculator. NextAuth снесёт cookie и роль исчезнет.
+      await signOut({ redirect: false });
+    } finally {
+      setLoading(false);
+      router.push("/calculator");
+      router.refresh();
+    }
   }
 
   return (

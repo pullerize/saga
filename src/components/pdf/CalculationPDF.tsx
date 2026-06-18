@@ -54,6 +54,13 @@ export interface CalculationPDFProps {
    */
   topLabels?: Array<{ xNorm: number; yNorm: number; text: string }>;
   /**
+   * Готовый data-URL (PNG) QR-кода под «Гарантийные условия» (генерируется
+   * в ProposalPreview из URL, заданного админом в CMS).
+   */
+  qrWarrantyDataUrl?: string;
+  /** Готовый data-URL QR-кода под «Договор оферты». */
+  qrOfferDataUrl?: string;
+  /**
    * Соотношения «одна дверь / весь viewBox» в системном и дверном SVG.
    * Если задано — слот «Вид двери» рендерится так, чтобы реальная дверь
    * внутри его SVG совпала по визуальным размерам с одной дверью в «Вид
@@ -308,6 +315,7 @@ export default function CalculationPDF(props: CalculationPDFProps) {
     components, totalPrice,
     services, customServices, variant, schemeSvgs, schemeSizes, topLabels, glassImageUrl, railImageUrl, date, notes,
     partnerLogoUrl, partnerCompanyName, doorBoxRatio,
+    qrWarrantyDataUrl, qrOfferDataUrl,
   } = props;
   // Имя сторонней компании показываем только если это не Saga Group.
   // (logo URL остаётся в пропсах для совместимости, но в шапке мы выводим имя.)
@@ -826,9 +834,10 @@ export default function CalculationPDF(props: CalculationPDFProps) {
                     style={{ flexDirection: "row", justifyContent: "center" }}
                   >
                     {/* «Вид сверху» — на всю ширину первого ряда, прижат
-                        влево. */}
+                        влево. Подпись отодвинута от картинки чуть сильнее, чем
+                        у других слотов. */}
                     <View style={{ width: r1TotalW, alignItems: "center" }}>
-                      <Text style={s.schemeLabel}>{p.label}</Text>
+                      <Text style={[s.schemeLabel, { marginBottom: 16 }]}>{p.label}</Text>
                       <View style={{ width: r2DrawW, height: imgH, position: "relative" }}>
                         <Image
                           src={p.src}
@@ -1127,14 +1136,22 @@ export default function CalculationPDF(props: CalculationPDFProps) {
           <View wrap={false} style={{ marginTop: 16 }}>
             <View style={s.qrRow}>
               <View style={[s.qrBlock, s.qrBlockLeft]}>
-                <View style={s.qrPlaceholder}><Text style={s.qrText}>QR</Text></View>
+                {qrWarrantyDataUrl ? (
+                  <Image src={qrWarrantyDataUrl} style={{ width: 48, height: 48 }} />
+                ) : (
+                  <View style={s.qrPlaceholder}><Text style={s.qrText}>QR</Text></View>
+                )}
                 <View style={s.qrLabel}>
                   <Text style={s.qrTitle}>Гарантийные условия</Text>
                   <Text style={s.qrDesc}>Отсканируйте QR-код для ознакомления с гарантийными условиями</Text>
                 </View>
               </View>
               <View style={s.qrBlock}>
-                <View style={s.qrPlaceholder}><Text style={s.qrText}>QR</Text></View>
+                {qrOfferDataUrl ? (
+                  <Image src={qrOfferDataUrl} style={{ width: 48, height: 48 }} />
+                ) : (
+                  <View style={s.qrPlaceholder}><Text style={s.qrText}>QR</Text></View>
+                )}
                 <View style={s.qrLabel}>
                   <Text style={s.qrTitle}>Договор оферты</Text>
                   <Text style={s.qrDesc}>Отсканируйте QR-код для ознакомления с условиями оферты</Text>

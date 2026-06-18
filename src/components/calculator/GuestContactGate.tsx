@@ -76,8 +76,9 @@ export function GuestContactGate({
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error || "Не удалось отправить заявку");
       }
+      // sessionStorage с разблокировкой больше не пишем — форма должна
+      // появляться каждый раз. Контакты сохраняем только для текущего шага.
       try {
-        sessionStorage.setItem(`guest_lead_unlocked_${systemSlug}`, "1");
         sessionStorage.setItem(
           "guest_lead_contact",
           JSON.stringify({ name: name.trim(), phone: phone.trim() }),
@@ -85,6 +86,7 @@ export function GuestContactGate({
       } catch {
         // ignore storage errors
       }
+      void systemSlug;
       onUnlock();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка отправки");

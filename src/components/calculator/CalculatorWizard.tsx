@@ -48,17 +48,10 @@ export function CalculatorWizard({ systemType }: CalculatorWizardProps) {
   const isGuest = sessionStatus === "unauthenticated";
 
   // Гостевой gate: показывается на шаге 3 вместо результата, пока гость не
-  // оставил имя+телефон. После успешной отправки запоминаем разблокировку в
-  // sessionStorage (на одну сессию вкладки), чтобы повторный визит к шагу 3
-  // в той же сессии не требовал ввода данных снова.
-  const [guestUnlocked, setGuestUnlocked] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return sessionStorage.getItem(`guest_lead_unlocked_${systemType}`) === "1";
-    } catch {
-      return false;
-    }
-  });
+  // оставил имя+телефон. Раньше разблокировка кэшировалась в sessionStorage и
+  // повторный визит формы не показывал — это убрали, форма всегда появляется
+  // (бизнес-требование).
+  const [guestUnlocked, setGuestUnlocked] = useState<boolean>(false);
 
   // Подсистемы из БД с videoUrl/posterUrl — для превью видео у подсистем,
   // в т.ч. для гостя. systemsData (hardcoded) ими не владеет, поэтому
