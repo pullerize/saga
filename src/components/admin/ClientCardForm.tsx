@@ -259,29 +259,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /* ─── Main component ─── */
-/* ─── Phone formatting helpers ─── */
-const PHONE_PREFIX = "+998 ";
-
-function formatPhoneDigits(digits: string): string {
-  // digits = only the part after 998, max 9 digits
-  const d = digits.slice(0, 9);
-  if (d.length <= 2) return d;
-  if (d.length <= 5) return `${d.slice(0, 2)} ${d.slice(2)}`;
-  if (d.length <= 7) return `${d.slice(0, 2)} ${d.slice(2, 5)}-${d.slice(5)}`;
-  return `${d.slice(0, 2)} ${d.slice(2, 5)}-${d.slice(5, 7)}-${d.slice(7)}`;
-}
-
-function formatPhone(digits: string): string {
-  if (!digits) return PHONE_PREFIX;
-  return PHONE_PREFIX + formatPhoneDigits(digits);
-}
-
-function extractPhoneDigits(formatted: string): string {
-  // Extract only digits after +998
-  const all = formatted.replace(/\D/g, "");
-  if (all.startsWith("998")) return all.slice(3, 12);
-  return all.slice(0, 9);
-}
+// Раньше тут жили хелперы автоматического форматирования телефона с
+// захардкоженным префиксом «+998». Теперь поле свободное — пользователь сам
+// набирает код страны и номер в любом формате, который ему удобен.
 
 /* ─── Name input with dropdown ─── */
 function NameCombobox({
@@ -445,9 +425,11 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
 
   // Client info
   const [clientName, setClientName] = useState(initialData?.clientName ?? "");
-  const [phoneDigits, setPhoneDigits] = useState(
-    initialData ? extractPhoneDigits(initialData.clientPhone) : ""
-  );
+  // Телефон клиента — СВОБОДНОЕ поле. Раньше код страны был жёстко зашит
+  // +998 и форматировался автоматически, но клиенты могут быть из других стран
+  // (РФ +7, Казахстан +7, Кыргызстан +996 и т.д.) — поэтому пользователь сам
+  // вбивает в формате, который ему нужен. В БД сохраняем как ввели.
+  const [clientPhone, setClientPhone] = useState(initialData?.clientPhone ?? "");
   const [clientAddress, setClientAddress] = useState(initialData?.clientAddress ?? "");
 
   // «Откуда узнали о нас» (обязательное) + уточнение, кто порекомендовал.
@@ -455,7 +437,8 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
   const [referralDetail, setReferralDetail] = useState(initialData?.referralDetail ?? "");
   const referralNeedsDetail = REFERRAL_SOURCES.find((s) => s.value === referralSource)?.needsDetail ?? false;
 
-  const clientPhone = formatPhone(phoneDigits);
+  // Кол-во цифр в телефоне для валидации (минимум 7 для международных).
+  const phoneDigitsCount = clientPhone.replace(/\D/g, "").length;
 
   // Manager info: managerId синхронизируется с managers (фетч) + initialData.
   const [managerId, setManagerId] = useState<string | null>(null);
@@ -566,7 +549,7 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
 
   const canProceedToConfig =
     clientName.trim() &&
-    phoneDigits.length >= 9 &&
+    phoneDigitsCount >= 7 &&
     managerId &&
     branchAddress &&
     referralSource &&
@@ -806,7 +789,7 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                   knownClients={knownClients}
                   onSelect={(c) => {
                     setClientName(c.name);
-                    setPhoneDigits(extractPhoneDigits(c.phone));
+                    setClientPhone(c.phone);
                     setClientAddress(c.address);
                   }}
                 />
@@ -818,17 +801,8 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     value={clientPhone}
-                    onChange={(e) => {
-                      const digits = extractPhoneDigits(e.target.value);
-                      setPhoneDigits(digits);
-                    }}
-                    onKeyDown={(e) => {
-                      // Allow backspace to erase digits
-                      if (e.key === "Backspace" && phoneDigits.length > 0) {
-                        e.preventDefault();
-                        setPhoneDigits(phoneDigits.slice(0, -1));
-                      }
-                    }}
+                    onChange={(e) => setClientPhone(e.target.value)}
+                    placeholder="+998 90 123-45-67"
                     className="pl-10"
                     name="client-phone-nofill"
                     autoComplete="one-time-code"
@@ -838,9 +812,9 @@ export function ClientCardForm({ knownClients = [], initialData, onCreated, onSi
                     data-protonpass-ignore
                   />
                 </div>
-                {phoneDigits.length > 0 && phoneDigits.length < 9 && (
+                {phoneDigitsCount > 0 && phoneDigitsCount < 7 && (
                   <p className="text-[11px] text-muted-foreground">
-                    {9 - phoneDigits.length} цифр осталось
+                    Минимум 7 цифр (включая код страны)
                   </p>
                 )}
               </div>
