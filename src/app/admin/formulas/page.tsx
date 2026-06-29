@@ -201,6 +201,7 @@ export default function FormulasPage() {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newFormula, setNewFormula] = useState("");
+  const [newUseOpenWidth, setNewUseOpenWidth] = useState(false);
   const [createError, setCreateError] = useState("");
 
   // Names that are matched literally in the calculation engine — renaming may break logic
@@ -375,6 +376,7 @@ export default function FormulasPage() {
   function openAdd() {
     setNewName("");
     setNewFormula("");
+    setNewUseOpenWidth(false);
     setCreateError("");
     setAdding(true);
     setEditingId(null);
@@ -393,11 +395,25 @@ export default function FormulasPage() {
     const sys = systems.find((s) => s.name === selectedSystem);
     if (!sys || sys.subsystems.length === 0) { setCreateError("У системы нет подсистем"); return; }
 
-    // Prevent creating duplicate by name inside the same system
+    // Для общих формул админ может выбрать «полностью» / «открытая часть».
+    // Авто-определяем из текста, если не задано явно.
+    const isCommon = selectedSystem === "Общие";
+    const autoFromText = /\(открытая\s+часть\)/i.test(newFormula);
+    const useOpenWidth = isCommon ? (newUseOpenWidth || autoFromText) : false;
+
+    // Дубль возможен ТОЛЬКО при совпадении (имя + useOpenWidth) — два
+    // варианта одной формулы (полностью / открытая часть) разрешены.
     const exists = formulas.some(
-      (f) => f.systemName === selectedSystem && f.componentName === name && f.componentName !== "Ширина двери"
+      (f) => f.systemName === selectedSystem
+        && f.componentName === name
+        && f.componentName !== "Ширина двери"
+        && !!f.useOpenWidth === useOpenWidth,
     );
-    if (exists) { setCreateError("Формула с таким названием уже существует в этой системе"); return; }
+    if (exists) {
+      const variant = useOpenWidth ? "«открытая часть»" : "«полностью»";
+      setCreateError(`Формула «${name}» с вариантом ${variant} уже существует в этой системе`);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -411,6 +427,7 @@ export default function FormulasPage() {
               subsystemName: subName,
               componentName: name,
               formula: newFormula,
+              useOpenWidth,
             }),
           })
         )
@@ -542,6 +559,46 @@ export default function FormulasPage() {
                               autoFocus
                             />
                           </div>
+                          {/* Для общих формул — выбор «какую ширину подставлять».
+                              Один и тот же componentName может иметь два варианта
+                              (полностью / открытая часть). Калькулятор сам выберет нужный
+                              в зависимости от системы. */}
+                          {selectedSystem === "Общие" && (
+                            <div className="rounded-md bg-muted/30 px-3 py-2.5 border border-border/60">
+                              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                                Какую ширину подставлять
+                              </p>
+                              <div className="flex gap-2">
+                                <label className={cn(
+                                  "flex-1 flex items-center gap-2 px-3 py-1.5 rounded border cursor-pointer text-xs transition-colors",
+                                  !newUseOpenWidth ? "border-brand-500 bg-brand-50 text-brand-700" : "border-border hover:border-brand-300",
+                                )}>
+                                  <input
+                                    type="radio"
+                                    className="sr-only"
+                                    checked={!newUseOpenWidth}
+                                    onChange={() => setNewUseOpenWidth(false)}
+                                  />
+                                  <span>Ширина проёма (полностью)</span>
+                                </label>
+                                <label className={cn(
+                                  "flex-1 flex items-center gap-2 px-3 py-1.5 rounded border cursor-pointer text-xs transition-colors",
+                                  newUseOpenWidth ? "border-brand-500 bg-brand-50 text-brand-700" : "border-border hover:border-brand-300",
+                                )}>
+                                  <input
+                                    type="radio"
+                                    className="sr-only"
+                                    checked={newUseOpenWidth}
+                                    onChange={() => setNewUseOpenWidth(true)}
+                                  />
+                                  <span>Открытая часть</span>
+                                </label>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground mt-1.5">
+                                Можно создать две формулы с одним именем — по одной для каждого варианта.
+                              </p>
+                            </div>
+                          )}
                           <FormulaInput
                             value={newFormula}
                             onChange={setNewFormula}
