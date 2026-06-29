@@ -258,14 +258,17 @@ async function main() {
   }
   console.log("✓ Гармошки");
 
-  // Bulk insert
+  // Bulk insert. После расширения @@unique до 4 полей у Prisma имя
+  // композитного ключа стало `systemName_subsystemName_componentName_useOpenWidth`.
+  // В сид-данных используем useOpenWidth=false (legacy формулы по полной ширине).
   for (const f of all) {
     await prisma.systemFormula.upsert({
       where: {
-        systemName_subsystemName_componentName: {
+        systemName_subsystemName_componentName_useOpenWidth: {
           systemName: f.systemName,
           subsystemName: f.subsystemName,
           componentName: f.componentName,
+          useOpenWidth: false,
         },
       },
       update: { formula: f.formula, sortOrder: f.sortOrder },
