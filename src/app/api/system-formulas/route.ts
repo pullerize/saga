@@ -61,21 +61,65 @@ export async function PUT(req: Request) {
   const { error } = await requireRole("ADMIN");
   if (error) return error;
   const body = await req.json().catch(() => ({}));
-  const { id, formula, componentName } = body;
+  const { id, formula, componentName, useOpenWidth } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const data: { formula?: string; componentName?: string } = {};
+  const data: { formula?: string; componentName?: string; useOpenWidth?: boolean } = {};
   if (formula !== undefined) data.formula = String(formula);
   if (componentName !== undefined) {
     const trimmed = String(componentName).trim();
     if (!trimmed) return NextResponse.json({ error: "componentName cannot be empty" }, { status: 400 });
     data.componentName = trimmed;
   }
+  if (useOpenWidth !== undefined) data.useOpenWidth = !!useOpenWidth;
+  // Авто-определение из текста формулы — если флаг не задан явно, но в тексте
+  // упомянута «(открытая часть)» — считаем формулу open-width вариантом.
+  // Аналогично «(полностью)» → false. Тогда галочку не надо ставить вручную.
+  if (data.useOpenWidth === undefined && data.formula !== undefined) {
+    const t = data.formula;
+    if (/\(открытая\s+часть\)/i.test(t)) data.useOpenWidth = true;
+    else if (/\(полностью\)/i.test(t)) data.useOpenWidth = false;
+  }
+
+  // Узнаём текущее имя — нужно для миграции SystemPrice при переименовании.
+  const current = await prisma.systemFormula.findUnique({ where: { id } });
+  if (!current) return NextResponse.json({ error: "Формула не найдена" }, { status: 404 });
+  const oldName = current.componentName;
+  const newName = data.componentName;
+  const willRename = newName !== undefined && newName !== oldName;
+
   try {
     const item = await prisma.systemFormula.update({ where: { id }, data });
     if (data.componentName) await ensureComponentForFormula(data.componentName);
+
+    // Переносим SystemPrice со старого имени на новое — иначе цена,
+    // которую админ выставил для этой формулы, остаётся осиротевшей,
+    // а под новым именем создаётся компонент с defaultPrice=0 и в КП
+    // его цена становится 0.
+    if (willRename && newName) {
+      // На всякий случай чистим возможный конфликтующий ряд под новым именем
+      // (например, если такой SystemPrice уже создавали вручную).
+      await prisma.systemPrice.deleteMany({
+        where: { systemName: current.systemName, componentName: newName },
+      });
+      await prisma.systemPrice.updateMany({
+        where: { systemName: current.systemName, componentName: oldName },
+        data: { componentName: newName },
+      });
+    }
     return NextResponse.json(item);
-  } catch {
-    return NextResponse.json({ error: "Не удалось обновить" }, { status: 500 });
+  } catch (err) {
+    // Prisma P2002 — нарушение уникального индекса (formulaName уже занят
+    // в этой системе+подсистеме). Возвращаем конкретное сообщение, чтобы
+    // пользователь видел причину, а не молчаливое «не сохранилось».
+    const code = (err as { code?: string })?.code;
+    if (code === "P2002") {
+      return NextResponse.json(
+        { error: "Формула с таким именем уже есть в этой системе. Возьмите другое имя." },
+        { status: 409 },
+      );
+    }
+    console.error("[system-formulas] PUT error:", err);
+    return NextResponse.json({ error: "Не удалось обновить формулу" }, { status: 500 });
   }
 }
 
@@ -87,6 +131,11 @@ export async function POST(req: Request) {
   const subsystemName = String(body.subsystemName || "").trim();
   const componentName = String(body.componentName || "").trim();
   const formula = String(body.formula || "").trim();
+  // Авто-определение useOpenWidth из текста формулы при создании.
+  let useOpenWidth = !!body.useOpenWidth;
+  if (body.useOpenWidth === undefined && /\(открытая\s+часть\)/i.test(formula)) {
+    useOpenWidth = true;
+  }
   if (!systemName || !subsystemName || !componentName || !formula) {
     return NextResponse.json({ error: "Все поля обязательны" }, { status: 400 });
   }
@@ -95,7 +144,7 @@ export async function POST(req: Request) {
       where: { systemName, subsystemName },
     });
     const item = await prisma.systemFormula.create({
-      data: { systemName, subsystemName, componentName, formula, sortOrder: count },
+      data: { systemName, subsystemName, componentName, formula, sortOrder: count, useOpenWidth },
     });
     // Компонент из формулы должен попадать в «Цены» (цена за единицу).
     await ensureComponentForFormula(componentName);

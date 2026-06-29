@@ -290,11 +290,19 @@ model SystemFormula {
   componentName String
   formula       String
   sortOrder     Int    @default(0)
+  // Для «общих» формул (systemName="Общие") — какую ширину проёма подставлять
+  // при расчёте: false = «Ширина проёма (полностью)» (= fullWidth),
+  // true = «Ширина проёма (открытая часть)» (= openWidth). В формуле текст
+  // не меняется — подменяется значение переменной в момент эвалуации.
+  useOpenWidth  Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([systemName, subsystemName, componentName])
+  // useOpenWidth включён в уникальный индекс, чтобы можно было держать две
+  // формулы с одинаковым именем (например, «Сборка/установка») — одну для
+  // систем с открытой частью, вторую без. Калькулятор подберёт нужную.
+  @@unique([systemName, subsystemName, componentName, useOpenWidth])
 }
 
 // ── Param Definitions (characteristics dictionary) ──

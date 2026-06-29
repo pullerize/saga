@@ -74,9 +74,24 @@ export async function POST(req: Request) {
     });
   }
 
-  // Also load "Общие" formulas
-  const commonFormulas = await prisma.systemFormula.findMany({
+  // Also load "Общие" formulas. В рамках одного имени может быть до двух
+  // формул, различающихся `useOpenWidth` (одна для систем с «открытой частью»,
+  // другая без). Выбираем подходящую для текущей системы.
+  const commonRaw = await prisma.systemFormula.findMany({
     where: { systemName: "Общие" },
+  });
+  const hasOpenWidth = !!system?.hasExtraField;
+  const byNameMap = new Map<string, typeof commonRaw>();
+  for (const cf of commonRaw) {
+    const arr = byNameMap.get(cf.componentName) ?? [];
+    arr.push(cf);
+    byNameMap.set(cf.componentName, arr);
+  }
+  const commonFormulas = Array.from(byNameMap.values()).map((group) => {
+    if (group.length === 1) return group[0];
+    // Несколько формул с одним именем: берём ту, чей useOpenWidth совпадает
+    // с возможностями системы. Если точного совпадения нет — первая запись.
+    return group.find((f) => !!f.useOpenWidth === hasOpenWidth) ?? group[0];
   });
 
   if (dbFormulas.length === 0) {
@@ -291,9 +306,15 @@ export async function POST(req: Request) {
     });
   }
 
-  // Step 3: Common formulas (Glass, Installation, Logistics)
+  // Step 3: Common formulas (Glass, Installation, Logistics).
+  // У общих формул админ может выбрать, какую ширину проёма подставлять:
+  // полностью (default, fullWidth) или открытая часть (openWidth). Подменяется
+  // только значение в `vars` для этой формулы — текст формулы не меняется.
   for (const cf of commonFormulas) {
-    let qty = evaluateFormula(cf.formula, vars);
+    const formulaVars: Record<string, number> = cf.useOpenWidth
+      ? { ...vars, "Ширина проёма (полностью)": openWidth || fullWidth }
+      : vars;
+    let qty = evaluateFormula(cf.formula, formulaVars);
     if (qty <= 0) continue;
 
     let price = 0;
@@ -320,6 +341,16 @@ export async function POST(req: Request) {
     } else if (cf.componentName.includes("логистик") || cf.componentName.includes("Доп расходы")) {
       const log = dbComponents.find((c) => c.key === "logistics");
       price = log ? effectivePrice(log, cf.componentName) : (componentPrices["logistics"] ?? 50);
+    } else {
+      // Любая другая «Общая» формула (например, кастомная, добавленная админом).
+      // Резолвим Component по имени формулы и берём эффективную цену
+      // (CompanyPrice → SystemPrice → defaultPrice). Раньше тут было 0 →
+      // цена кастомной общей формулы не подхватывалась в КП.
+      const comp = findComponent(cf.componentName);
+      if (comp) {
+        price = effectivePrice(comp, cf.componentName);
+        unit = comp.unit || "шт";
+      }
     }
 
     qty = Math.round(qty * 100) / 100;

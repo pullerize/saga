@@ -29,6 +29,7 @@ interface Formula {
   componentName: string;
   formula: string;
   sortOrder: number;
+  useOpenWidth?: boolean;
 }
 
 interface ParamDef {
@@ -194,6 +195,7 @@ export default function FormulasPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editName, setEditName] = useState("");
+  const [editUseOpenWidth, setEditUseOpenWidth] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
@@ -208,6 +210,7 @@ export default function FormulasPage() {
     setEditingId(f.id);
     setEditValue(f.formula);
     setEditName(f.componentName);
+    setEditUseOpenWidth(!!f.useOpenWidth);
   }
 
   const fetchFormulas = useCallback(async () => {
@@ -312,42 +315,61 @@ export default function FormulasPage() {
 
   async function handleSave(id: string, formula: string, componentName: string) {
     setSaving(true);
+    setCreateError("");
     const edited = formulas.find((f) => f.id === id);
     const trimmedName = componentName.trim();
     const nameChanged = !!edited && trimmedName !== edited.componentName && !!trimmedName;
     const finalName = trimmedName || edited?.componentName || "";
+    // useOpenWidth применим только для общих формул — для остальных всегда false.
+    const isCommon = edited?.systemName === "Общие";
+    const useOpenWidthValue = isCommon ? editUseOpenWidth : false;
 
-    // Update this formula (formula + name)
-    await fetch("/api/system-formulas", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, formula, componentName: finalName }),
-    });
+    try {
+      // Update this formula (formula + name + useOpenWidth)
+      const res = await fetch("/api/system-formulas", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, formula, componentName: finalName, useOpenWidth: useOpenWidthValue }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        const msg = d?.error || (res.status === 401
+          ? "Сессия истекла, перезайдите как админ"
+          : res.status === 500
+            ? "Не удалось сохранить (возможно имя совпадает с уже существующей формулой в этой системе)"
+            : `Не удалось сохранить (HTTP ${res.status})`);
+        // alert вместо тихого фейла — пользователь увидит причину, иначе казалось
+        // что «название не меняется», хотя по факту сервер отвергал запрос.
+        if (typeof window !== "undefined") window.alert(msg);
+        return;
+      }
 
-    // Also update all copies in other subsystems of the same system.
-    // For "Ширина двери" each subsystem has its own formula — don't propagate.
-    if (edited && edited.componentName !== "Ширина двери") {
-      const copies = formulas.filter(
-        (f) => f.systemName === edited.systemName && f.componentName === edited.componentName && f.id !== id
-      );
-      await Promise.all(
-        copies.map((c) =>
-          fetch("/api/system-formulas", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: c.id,
-              formula,
-              ...(nameChanged ? { componentName: finalName } : {}),
-            }),
-          })
-        )
-      );
+      // Also update all copies in other subsystems of the same system.
+      // For "Ширина двери" each subsystem has its own formula — don't propagate.
+      if (edited && edited.componentName !== "Ширина двери") {
+        const copies = formulas.filter(
+          (f) => f.systemName === edited.systemName && f.componentName === edited.componentName && f.id !== id
+        );
+        await Promise.all(
+          copies.map((c) =>
+            fetch("/api/system-formulas", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: c.id,
+                formula,
+                ...(nameChanged ? { componentName: finalName } : {}),
+              }),
+            })
+          )
+        );
+      }
+
+      setEditingId(null);
+      await fetchFormulas();
+    } finally {
+      setSaving(false);
     }
-
-    setEditingId(null);
-    await fetchFormulas();
-    setSaving(false);
   }
 
   function openAdd() {
@@ -618,6 +640,46 @@ export default function FormulasPage() {
                                     </p>
                                   )}
                                 </div>
+                                {/* Переключатель «Ширина проёма» — только для общих формул.
+                                    В формуле всегда пишется «Ширина проёма (полностью)»,
+                                    а флаг говорит движку, какое значение туда подставить
+                                    при расчёте: fullWidth (полностью) или openWidth (открытая часть). */}
+                                {f.systemName === "Общие" && (
+                                  <div className="rounded-md bg-muted/30 px-3 py-2.5 border border-border/60">
+                                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                                      Какую ширину подставлять
+                                    </p>
+                                    <div className="flex gap-2">
+                                      <label className={cn(
+                                        "flex-1 flex items-center gap-2 px-3 py-1.5 rounded border cursor-pointer text-xs transition-colors",
+                                        !editUseOpenWidth ? "border-brand-500 bg-brand-50 text-brand-700" : "border-border hover:border-brand-300",
+                                      )}>
+                                        <input
+                                          type="radio"
+                                          className="sr-only"
+                                          checked={!editUseOpenWidth}
+                                          onChange={() => setEditUseOpenWidth(false)}
+                                        />
+                                        <span>Ширина проёма (полностью)</span>
+                                      </label>
+                                      <label className={cn(
+                                        "flex-1 flex items-center gap-2 px-3 py-1.5 rounded border cursor-pointer text-xs transition-colors",
+                                        editUseOpenWidth ? "border-brand-500 bg-brand-50 text-brand-700" : "border-border hover:border-brand-300",
+                                      )}>
+                                        <input
+                                          type="radio"
+                                          className="sr-only"
+                                          checked={editUseOpenWidth}
+                                          onChange={() => setEditUseOpenWidth(true)}
+                                        />
+                                        <span>Открытая часть</span>
+                                      </label>
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground mt-1.5">
+                                      В тексте формулы оставляй «Ширина проёма (полностью)» — движок сам подставит нужное значение для каждой системы.
+                                    </p>
+                                  </div>
+                                )}
                                 <FormulaInput
                                   value={editValue}
                                   onChange={setEditValue}
@@ -630,7 +692,14 @@ export default function FormulasPage() {
                             ) : (
                               <div className="flex items-start justify-between gap-3">
                                 <div className="flex-1 min-w-0 cursor-pointer" onClick={() => startEdit(f)}>
-                                  <p className="text-sm font-semibold mb-1.5">{f.componentName}</p>
+                                  <p className="text-sm font-semibold mb-1.5">
+                                    {f.componentName}
+                                    {f.systemName === "Общие" && f.useOpenWidth && (
+                                      <span className="ml-2 text-[10px] font-medium text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">
+                                        открытая часть
+                                      </span>
+                                    )}
+                                  </p>
                                   <p className="font-mono text-xs text-brand-700 bg-brand-50/50 rounded-md px-3 py-2 leading-relaxed break-all">
                                     {f.formula}
                                   </p>
